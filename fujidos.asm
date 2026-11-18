@@ -5356,7 +5356,7 @@ FDCHK          ldx       #XCHK
                tfr       b,cc
                jmp       ,x
 
-* Expression hook for TIME$ and DATE$
+* Expression hook for the FDFTAB functions
 FDV15          ldx       #XFUN
                bsr       FDXGO
                jmp       ,x
@@ -5453,6 +5453,8 @@ FDFTAB         fcs       'TIME$'
                fdb       XTIME
                fcs       'DATE$'
                fdb       XDATE
+               fcs       'GUID$'
+               fdb       XGUID
                fcb       0
 
 * Match the word at CHARAD against table U. Found: NE, U at the handler,
@@ -5485,7 +5487,7 @@ XCHK           pshs      d
                jsr       <GETNCH
 XCHK1          ldu       #FDFTAB
                bsr       XMATCH
-               bne       XSN                 TIME$ and DATE$ can't be set
+               bne       XSN                 FDFTAB functions can't be set
                puls      x
                stx       <CHARAD
                ldu       #FDTAB
@@ -5564,6 +5566,47 @@ XCLKCM         fcb       $E5,$54,0           OP_CLOCK, simple binary, FujiNet ti
 XTFMT          fcb       8,4,':,5,':,6,$FF
 XDFMT          fcb       10,0,1,'-,2,'-,3,$FF
 XNOFMT         fcb       0,$FF
+
+* GUID$: a new random GUID from the FujiNet; "" if it doesn't answer.
+XGUID          leas      -37,s
+               ldx       #XGCMD
+               ldy       #4
+               jsr       DWWrite
+               leax      ,s
+               ldy       #1
+               jsr       DWRead
+               bcs       XGNO
+               bne       XGNO
+               lda       ,s
+               deca                          1 = no error
+               bne       XGNO
+               ldx       #XGRSP
+               ldy       #2
+               jsr       DWWrite
+               leax      ,s
+               ldy       #37
+               jsr       DWRead
+               bcs       XGNO
+               bne       XGNO
+               ldb       #36
+               bra       XGSTR
+XGNO           clrb
+XGSTR          jsr       FDOUT
+               fdb       LB50F
+               leau      ,s
+               tstb
+               beq       XGX
+XGL            lda       ,u+
+               sta       ,x+
+               decb
+               bne       XGL
+XGX            leas      37,s
+               jsr       FDOUT
+               fdb       LB54C
+               rts
+
+XGCMD          fcb       $E2,$BB,$E2,$02     OP_FUJI GENERATE_GUID, OP_FUJI SEND_ERROR
+XGRSP          fcb       $E2,$01             OP_FUJI SEND_RESPONSE
 
                fill      $39,MAGICDG+$4000-*
 

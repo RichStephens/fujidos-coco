@@ -12,6 +12,7 @@ time and also runs on a CoCo 2.
 | `CONFIG` | Puts the FujiNet CONFIG disk back in drive 0 and reboots into CONFIG |
 | `TIME$` | The FujiNet's time as `HH:MM:SS` (24-hour), or `""` if it doesn't answer |
 | `DATE$` | The FujiNet's date as `YYYY-MM-DD`, or `""` if it doesn't answer |
+| `GUID$` | A new random GUID from the FujiNet, 36 lowercase characters, or `""` if it doesn't answer |
 
 CoCo 3 BASIC leaves almost no free command tokens, so FujiDOS commands are
 plain words. They are reserved like BASIC keywords: `CONFIG=1` is a syntax
