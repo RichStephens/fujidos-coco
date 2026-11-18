@@ -468,7 +468,7 @@ LC03B          lda       #$7E                OP CODE OF JMP INSTRUCTION
                bne       LC03B               BRANCH IF NOT ALL VECTORS MOVED
                ldx       #DVEC22             GET ROM VALUE OF 'GET'/'PUT' RAM VECTOR
                stx       RVEC22+1            SAVE IT IN RAM
-               jsr       >FDINIT             SET RVEC20 AND RVEC23
+               jsr       >FDINIT             SET FUJIDOS RAM HOOKS
                nop
                nop
                nop
@@ -5325,6 +5325,8 @@ FDINIT         ldx       #DVEC20
                stx       RVEC20+1
                ldx       #FDV23
                stx       RVEC23+1
+               ldx       #FDV15
+               stx       RVEC15+1
 * CoCo 3 BASIC copies only $C000-$DFFF, so copy the upper 8K into block FDXBLK.
 * Runs from both the cart and its RAM copy, which must match here.
                lda       >$FFFC              MSB of NMI vector
@@ -5348,28 +5350,19 @@ FDV23          ldx       2,s
                stx       2,s
 FDV23X         rts
 
-* FujiDOS commands, matched as plain words since no tokens are free.
-* Entry: A = statement's first char, B = its GETNCH flags.
-FDCHK          cmpa      #'A
-               blo       FDDSP
-               cmpa      #'Z
-               bhi       FDDSP
-               pshs      a
-               ldu       #FDTAB
-FDNXT          ldx       <CHARAD
-               tst       ,u                  End of table?
-               beq       FDNOT
-FDCMP          lda       ,u+
-               anda      #$7F
-               cmpa      ,x+
-               bne       FDSKP
-               tst       -1,u                Last char of name?
-               bpl       FDCMP
-               leas      1,s
-               leax      -1,x
-               stx       <CHARAD
-               jsr       <GETNCH             A = first char after name
-               ldx       ,u
+* FujiDOS commands. A = statement's first char, B = its GETNCH flags.
+FDCHK          ldx       #XCHK
+               bsr       FDXGO
+               tfr       b,cc
+               jmp       ,x
+
+* Expression hook for TIME$ and DATE$
+FDV15          ldx       #XFUN
+               bsr       FDXGO
+               jmp       ,x
+FDDROP         leas      2,s                 Return past LB223 with the value
+               rts
+
 * Run upper-8K code at X with interrupts masked.
 FDXGO          pshs      cc
                orcc      #$50
@@ -5377,14 +5370,6 @@ FDXGO          pshs      cc
                jsr       ,x
                bsr       FDXOUT
                puls      cc,pc
-FDSKP          leau      -1,u
-FDSKL          tst       ,u+
-               bpl       FDSKL
-               leau      2,u
-               bra       FDNXT
-FDNOT          puls      a
-FDDSP          tfr       b,cc
-               jmp       >LADC6
 
 * Upper-8K code calls out with: jsr FDOUT / fdb routine.
 * D, X, Y and U pass both ways, the flags back only. Interrupts are on during
@@ -5413,13 +5398,6 @@ FDXSET         lda       >$FFFC
                stb       >$FFA7              MMU task 0, $E000-$FFFF
 FDXSX          puls      cc,d,pc
 
-* Name (FCS), handler. A name that prefixes another must come after it.
-FDTAB          fcs       'CONFIG'
-               fdb       FDCFG
-               fcs       'XTEST'
-               fdb       XTEST
-               fcb       0
-
  IFNE MEGAMINIMPI
  use dwinit.asm
 
@@ -5432,7 +5410,7 @@ ZZLAST         equ       *-1                 Cannot be > $DFFF!
 
                fill      $39,MAGICDG+$2000-*
 
-* Upper 8K. FDCHK runs commands here through FDXGO; they call BASIC through FDOUT.
+* Upper 8K. FDCHK and FDV15 run code here through FDXGO; it calls BASIC through FDOUT.
 
 * Runs from the cart in ROM mode. ROM shows only through blocks $3C-$3F, so
 * $E000 stays on $3F and block FDXBLK is written through $8000.
@@ -5464,18 +5442,128 @@ FDCFG3         clr       <RSTFLG             Force cold start
                fdb       $A027               BASIC cold start
 FDBOOT         fcb       $E2,$D6,0           OP_FUJI, SET_BOOT_MODE, CONFIG
 
-* XTEST: proof of concept for upper-8K commands
-XTEST          jsr       FDOUT
-               fdb       LA5C7               ?SN ERROR if more chars
-               ldx       #XTMSG
-XTLP           lda       ,x+
-               beq       XTX
+TOKEN_LET      equ       $BA
+
+* Words are matched as plain text since no tokens are free.
+* Name (FCS), handler. A name that prefixes another must come after it.
+FDTAB          fcs       'CONFIG'
+               fdb       FDCFG
+               fcb       0
+FDFTAB         fcs       'TIME$'
+               fdb       XTIME
+               fcs       'DATE$'
+               fdb       XDATE
+               fcb       0
+
+* Match the word at CHARAD against table U. Found: NE, U at the handler,
+* CHARAD at the word's last char.
+XMATCH         ldx       <CHARAD
+               tst       ,u
+               beq       XMX
+XMCMP          lda       ,u+
+               anda      #$7F
+               cmpa      ,x+
+               bne       XMSKP
+               tst       -1,u
+               bpl       XMCMP
+               leax      -1,x
+               stx       <CHARAD
+               andcc     #$FB
+XMX            rts
+XMSKP          leau      -1,u
+XMSKL          tst       ,u+
+               bpl       XMSKL
+               leau      2,u
+               bra       XMATCH
+
+* Returns X = LADC6 to let BASIC run the statement, else FDINX (an RTS).
+XCHK           pshs      d
+               ldx       <CHARAD
+               pshs      x
+               cmpa      #TOKEN_LET
+               bne       XCHK1
+               jsr       <GETNCH
+XCHK1          ldu       #FDFTAB
+               bsr       XMATCH
+               bne       XSN                 TIME$ and DATE$ can't be set
+               puls      x
+               stx       <CHARAD
+               ldu       #FDTAB
+               bsr       XMATCH
+               puls      d
+               beq       XCHKN
+               jsr       <GETNCH
+               jsr       [,u]
+               ldx       #FDINX
+               rts
+XCHKN          ldx       #LADC6
+               rts
+XSN            jsr       FDOUT
+               fdb       LB277
+
+* Returns X = DVEC15 to let BASIC evaluate the term, else FDDROP.
+XFUN           ldx       <CHARAD
+               pshs      x
+               jsr       <GETNCH
+               ldu       #FDFTAB
+               bsr       XMATCH
+               puls      x
+               beq       XFUNN
+               jsr       <GETNCH
+               jsr       [,u]
+               ldx       #FDDROP
+               rts
+XFUNN          stx       <CHARAD
+               ldx       #DVEC15
+               rts
+
+* TIME$ and DATE$ from the FujiNet clock; "" if it doesn't answer.
+XTIME          ldx       #XTFMT
+               bra       XCLK
+XDATE          ldx       #XDFMT
+XCLK           leas      -7,s
+               pshs      x
+               ldx       #XCLKCM
+               ldy       #3
+               jsr       DWWrite
+               leax      2,s
+               ldy       #7
+               jsr       DWRead
+               bcs       XCLKE
+               beq       XCLKF
+XCLKE          ldx       #XNOFMT
+               stx       ,s
+XCLKF          ldb       [,s]
                jsr       FDOUT
-               fdb       PUTCHR
-               bra       XTLP
-XTX            rts
-XTMSG          fcc       "HELLO FROM THE UPPER 8K"
-               fcb       CR,0
+               fdb       LB50F               X = B bytes of string space
+               puls      y
+               leay      1,y
+               leau      ,s
+XCLKL          ldb       ,y+
+               bmi       XCLKX
+               cmpb      #7
+               bhs       XCLKC
+               ldb       b,u
+               lda       #'0-1
+XCLKD          inca
+               subb      #10
+               bcc       XCLKD
+               addb      #'0+10
+               std       ,x++
+               bra       XCLKL
+XCLKC          stb       ,x+
+               bra       XCLKL
+XCLKX          leas      7,s
+               jsr       FDOUT
+               fdb       LB54C               Push the string
+               rts
+
+XCLKCM         fcb       $E5,$54,0           OP_CLOCK, simple binary, FujiNet timezone
+* Length, then reply byte numbers (century, year, month, day, hour, minute,
+* second) to print as two digits and characters to copy, ended by $FF.
+XTFMT          fcb       8,4,':,5,':,6,$FF
+XDFMT          fcb       10,0,1,'-,2,'-,3,$FF
+XNOFMT         fcb       0,$FF
 
                fill      $39,MAGICDG+$4000-*
 
