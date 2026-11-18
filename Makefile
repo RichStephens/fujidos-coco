@@ -6,7 +6,7 @@ all: $(ROM)
 
 $(ROM): ecb_equates.asm fujidos.asm dwdefs.d dwread.asm dwwrite.asm
 	$(AS) ecb_equates.asm fujidos.asm -o$@ $(FLAGS)
-	@test $$(stat -c %s $@) -eq 8192 || { echo "$@ is not 8192 bytes"; rm -f $@; exit 1; }
+	@test $$(stat -c %s $@) -eq 16384 || { echo "$@ is not 16384 bytes"; rm -f $@; exit 1; }
 
 clean:
 	rm -f $(ROM)

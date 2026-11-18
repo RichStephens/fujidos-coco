@@ -5319,11 +5319,26 @@ DOMORE         ldb       ,x+                 Get a byte
                bne       DOMORE              If not end (0) flag get more
                rts
 
+FDXBLK         equ       $37                 CoCo 3 RAM block BASIC leaves unused
+
 FDINIT         ldx       #DVEC20
                stx       RVEC20+1
                ldx       #FDV23
                stx       RVEC23+1
-               rts
+* CoCo 3 BASIC copies only $C000-$DFFF, so copy the upper 8K into block FDXBLK.
+* Runs from both the cart and its RAM copy, which must match here.
+               lda       >$FFFC              MSB of NMI vector
+               cmpa      #$FE                CoCo 3?
+               bne       FDINX
+               pshs      cc
+               orcc      #$50
+               ldb       #$CC                32 column, 16K internal/16K external ROM
+               stb       >$FF90
+               sta       >$FFDE              ROM mode
+               jsr       XCOPY
+               sta       >$FFDF              RAM mode
+               puls      cc
+FDINX          rts
 
 * Replaces ECB's crunch hook: run direct-mode lines in DVEC20's loop so FDCHK sees them.
 FDV23          ldx       2,s
@@ -5354,7 +5369,14 @@ FDCMP          lda       ,u+
                leax      -1,x
                stx       <CHARAD
                jsr       <GETNCH             A = first char after name
-               jmp       [,u]
+               ldx       ,u
+* Run upper-8K code at X with interrupts masked.
+FDXGO          pshs      cc
+               orcc      #$50
+               bsr       FDXIN
+               jsr       ,x
+               bsr       FDXOUT
+               puls      cc,pc
 FDSKP          leau      -1,u
 FDSKL          tst       ,u+
                bpl       FDSKL
@@ -5364,20 +5386,39 @@ FDNOT          puls      a
 FDDSP          tfr       b,cc
                jmp       >LADC6
 
+* Upper-8K code calls out with: jsr FDOUT / fdb routine.
+* D, X, Y and U pass both ways, the flags back only. Interrupts are on during
+* the routine, and on a CoCo 3 it can't see upper-8K data.
+FDOUT          pshs      d,x
+               ldx       4,s
+               ldd       ,x++
+               stx       4,s
+               ldx       2,s
+               std       2,s
+               bsr       FDXOUT
+               andcc     #$AF
+               puls      d
+               jsr       [,s++]
+               orcc      #$50
+               bra       FDXIN
+
+FDXOUT         pshs      cc,d
+               ldb       #$3F
+               bra       FDXSET
+FDXIN          pshs      cc,d
+               ldb       #FDXBLK
+FDXSET         lda       >$FFFC
+               cmpa      #$FE
+               bne       FDXSX
+               stb       >$FFA7              MMU task 0, $E000-$FFFF
+FDXSX          puls      cc,d,pc
+
 * Name (FCS), handler. A name that prefixes another must come after it.
 FDTAB          fcs       'CONFIG'
                fdb       FDCFG
+               fcs       'XTEST'
+               fdb       XTEST
                fcb       0
-
-* CONFIG: remount the FujiNet CONFIG disk as drive 0 and cold start
-FDCFG          jsr       LA5C7               ?SN ERROR if more chars
-               jsr       DVEC7               Close all files
-               ldx       #FDBOOT
-               ldy       #3
-               jsr       DWWrite
-               clr       <RSTFLG             Force cold start
-               jmp       $A027               BASIC cold start
-FDBOOT         fcb       $E2,$D6,0           OP_FUJI, SET_BOOT_MODE, CONFIG
 
  IFNE MEGAMINIMPI
  use dwinit.asm
@@ -5390,5 +5431,52 @@ DKWMST2       nop                            WARM START INDICATOR
 ZZLAST         equ       *-1                 Cannot be > $DFFF!
 
                fill      $39,MAGICDG+$2000-*
+
+* Upper 8K. FDCHK runs commands here through FDXGO; they call BASIC through FDOUT.
+
+* Runs from the cart in ROM mode. ROM shows only through blocks $3C-$3F, so
+* $E000 stays on $3F and block FDXBLK is written through $8000.
+XCOPY          lda       #FDXBLK
+               sta       >$FFA4
+               ldx       #$E000
+XCOPYL         ldd       ,x++
+               std       -$6002,x
+               cmpx      #$FE00
+               blo       XCOPYL
+               lda       #$3C
+               sta       >$FFA4
+               rts
+
+* CONFIG: remount the FujiNet CONFIG disk as drive 0 and cold start
+FDCFG          jsr       FDOUT
+               fdb       LA5C7               ?SN ERROR if more chars
+               jsr       FDOUT
+               fdb       DVEC7               Close all files
+               ldx       #FDBOOT
+               ldy       #3
+               jsr       DWWrite
+               lda       >$FFFC              MSB of NMI vector
+               cmpa      #$FE                CoCo 3?
+               beq       FDCFG3
+               sta       >$FFDE              ROM mode, or RESVEC's SAM reset crashes in all-RAM mode
+FDCFG3         clr       <RSTFLG             Force cold start
+               jsr       FDOUT
+               fdb       $A027               BASIC cold start
+FDBOOT         fcb       $E2,$D6,0           OP_FUJI, SET_BOOT_MODE, CONFIG
+
+* XTEST: proof of concept for upper-8K commands
+XTEST          jsr       FDOUT
+               fdb       LA5C7               ?SN ERROR if more chars
+               ldx       #XTMSG
+XTLP           lda       ,x+
+               beq       XTX
+               jsr       FDOUT
+               fdb       PUTCHR
+               bra       XTLP
+XTX            rts
+XTMSG          fcc       "HELLO FROM THE UPPER 8K"
+               fcb       CR,0
+
+               fill      $39,MAGICDG+$4000-*
 
                end LC00C

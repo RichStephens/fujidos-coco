@@ -10,6 +10,7 @@ time and also runs on a CoCo 2.
 | Command | What it does |
 |---|---|
 | `CONFIG` | Puts the FujiNet CONFIG disk back in drive 0 and reboots into CONFIG |
+| `XTEST` | Temporary test command: prints a message from the upper 8K |
 
 CoCo 3 BASIC leaves almost no free command tokens, so FujiDOS commands are
 plain words. They are reserved like BASIC keywords: `CONFIG=1` is a syntax
@@ -23,7 +24,10 @@ Needs `lwasm` from [LWTOOLS](http://lwtools.projects.l-w.ca).
 make
 ```
 
-This produces `fujidos.rom`, an 8K image for $C000-$DFFF.
+This produces `fujidos.rom`, a 16K image for $C000-$FEFF; the last 256 bytes
+are unused. A CoCo 3 keeps the upper 8K in RAM block $37, which BASIC leaves
+unused; a program that overwrites that block breaks FujiDOS commands until the
+next cold start.
 
 ## Credits
 
