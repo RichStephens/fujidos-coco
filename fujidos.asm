@@ -637,8 +637,8 @@ LC219          fcs       'CVN'               A2
 * FUNCTION / TOKEN #
 LC22C          fdb       CVN                 CVN / A2
                fdb       FREE                FREE / A3
-               fdb       LOC                 LOC / A4
-               fdb       LOF                 LOF / A5
+               fdb       FDHLOC              LOC / A4
+               fdb       FDHLOF              LOF / A5
                fdb       MKN                 MKN$ / A6
                fdb       LB277               AS / A7
 *DISK BASIC COMMAND INTERPRETATION HANDLER
@@ -923,7 +923,7 @@ DVEC0          leas      $02,S               PULL RETURN ADDRESS OFF OF THE STAC
                clr       DEVNUM              SET DEVICE NUMBER TO SCREEN
                jsr       SYNCOMMA            SYNTAX CHECK FOR COMMA
                ldx       #DATEXT             POINT TO 'DAT' FOR EXTENSION
-               jsr       >LC938              GET FILENAME FROM BASIC
+               jsr       >FDHOPN             GET FILENAME FROM BASIC, OR OPEN A FUJINET FILE
                ldd       #$01FF              DEFAULT DISK FILE TYPE AND ASCII FLAG
                std       DFLTYP              SAVE DEFAULT VALUES: DATA, ASCII
                ldx       #SECLEN             DEFAULT RECORD LENGTH - 1 PAGE
@@ -1447,7 +1447,7 @@ DVEC6          lda       #OUTFIL             OUTPUT FILE TYPE
                ble       LC806               * NOT A DISK FILE
                stx       ,S                  = REPLACE SUBROUTINE RETURN ADDRESS WITH X REGISTER -
 * = THIS IS THE SAME AS LEAS 2,S AND PSHS X
-               jsr       >LC744              POINT X TO FCB
+               jsr       >FDHTYP             POINT X TO FCB, OR CHECK A FUJINET FILE
                pshs      B,A                 SAVE ACCB AND FILE TYPE ON STACK
                lda       FCBTYP,X            GET FILE TYPE
                lbeq      LA3FB               'FILE NOT OPEN' ERROR
@@ -1547,7 +1547,7 @@ DVEC14         leas      $02,S               PURGE RETURN ADDRESS OFF OF THE STA
                jsr       >LA3ED              VERIFY THAT THE FILE TYPE WAS 'INPUT'
                tst       DEVNUM              * CHECK DEVICE NUMBER AND
                lble      LA5DA               * BRANCH BACK TO BASIC'S EOF IF NOT DISK FILE
-               jsr       >LC744              POINT X TO FCB
+               jsr       >FDHEOF             POINT X TO FCB, OR DO EOF FOR A FUJINET FILE
                ldb       FCBTYP,X            GET FILE TYPE
                cmpb      #RANFIL             RANDOM FILE?
                lbeq      LA616               'FM' BAD FILE MODE ERROR IF RANDOM
@@ -1798,8 +1798,8 @@ DVEC8          tst       DEVNUM              * CHECK DEVICE NUMBER AND RETURN
                leas      $02,S               PURGE RETURN ADDRESS OFF OF THE STACK
 LCB01          jsr       >LC744              POINT X TO CORRECT FCB
                clr       DEVNUM              SET DEVICE NUMBER TO SCREEN
-LCB06          stx       FCBTMP              SAVE FILE BUFFER POINTER
-               lda       FCBTYP,X            GET THE TYPE OF THIS FILE
+LCB06          jsr       >FDHCLS             SAVE FILE BUFFER POINTER AND GET ITS TYPE, OR CLOSE A FUJINET FILE
+               tsta
                beq       LCAF8               RETURN IF FILE NOT OPEN
                pshs      A                   SAVE FILE TYPE
                clr       FCBTYP,X            CLOSE THE FILE - ZERO OUT THE FILE TYPE
@@ -5201,7 +5201,7 @@ DTEST          fdb       $0200               Read, drive 0
 ATARI          tst       <$6F
                beq       A@
                blt       C@
-               jmp       LCC22
+               jmp       FDHOUT              Disk file, or FujiNet file
 A@             cmpa      #$07
                bne       B@
                jsr       >BEEP
@@ -5222,7 +5222,7 @@ FLEXKY         lda       <$6F                Get device number
                bne       JMPOUT              No, go to original code
                nega                          Yes, flag buffer in use
                sta       INTFLG              Store flag
-JMPOUT         jmp       DVEC4               Jump to old code
+JMPOUT         jmp       FDHIN               Jump to old code, or read a FujiNet file
 KEY            pshs      X,B                 Save registers
                ldx       7,s                 Where are we coming from?
                cmpx      #LA39A+3            The idle loop?
@@ -5321,17 +5321,11 @@ DOMORE         ldb       ,x+                 Get a byte
 
 FDXBLK         equ       $37                 CoCo 3 RAM block BASIC leaves unused
 
-FDINIT         ldx       #DVEC20
-               stx       RVEC20+1
-               ldx       #FDV23
-               stx       RVEC23+1
-               ldx       #FDV15
-               stx       RVEC15+1
 * CoCo 3 BASIC copies only $C000-$DFFF, so copy the upper 8K into block FDXBLK.
 * Runs from both the cart and its RAM copy, which must match here.
-               lda       >$FFFC              MSB of NMI vector
+FDINIT         lda       >$FFFC              MSB of NMI vector
                cmpa      #$FE                CoCo 3?
-               bne       FDINX
+               bne       FDINI2
                pshs      cc
                orcc      #$50
                ldb       #$CC                32 column, 16K internal/16K external ROM
@@ -5340,7 +5334,8 @@ FDINIT         ldx       #DVEC20
                jsr       XCOPY
                sta       >$FFDF              RAM mode
                puls      cc
-FDINX          rts
+FDINI2         ldx       #XINIT
+               bra       FDXGO
 
 * Replaces ECB's crunch hook: run direct-mode lines in DVEC20's loop so FDCHK sees them.
 FDV23          ldx       2,s
@@ -5360,8 +5355,34 @@ FDCHK          ldx       #XCHK
 FDV15          ldx       #XFUN
                bsr       FDXGO
                jmp       ,x
-FDDROP         leas      2,s                 Return past LB223 with the value
-               rts
+
+* Disk BASIC's file code calls these for FujiNet files.
+FDHOPN         bsr       FDHK
+               fdb       XOPEN
+FDHOUT         bsr       FDHK
+               fdb       XOUT
+FDHIN          bsr       FDHK
+               fdb       XIN
+FDHTYP         bsr       FDHK
+               fdb       XTYP
+FDHEOF         bsr       FDHK
+               fdb       XEOF
+FDHCLS         bsr       FDHK
+               fdb       XCLS
+FDHLOF         bsr       FDHK
+               fdb       XLOF
+FDHLOC         bsr       FDHK
+               fdb       XLOC
+* Run the upper-8K handler named after the bsr with the caller's registers.
+* It sets the X to leave with and where to go next (XHX and XHGO).
+FDHK           pshs      x
+               ldx       [2,s]
+               bsr       FDXGO
+               puls      x,pc
+FDDRPJ         leas      2,s                 Drop a return address and go to X
+               jmp       ,x
+FDDROP         leas      2,s                 Return past the caller
+FDRTS          rts
 
 * Run upper-8K code at X with interrupts masked.
 FDXGO          pshs      cc
@@ -5448,6 +5469,14 @@ TOKEN_LET      equ       $BA
 * Name (FCS), handler. A name that prefixes another must come after it.
 FDTAB          fcs       'CONFIG'
                fdb       FDCFG
+               fcs       'HEADER'
+               fdb       XHEAD
+               fcs       'JSONPARSE'
+               fdb       XJPAR
+               fcs       'XMLPARSE'
+               fdb       XXPAR
+               fcs       'HTMLPARSE'
+               fdb       XHPAR
                fcb       0
 FDFTAB         fcs       'TIME$'
                fdb       XTIME
@@ -5455,6 +5484,16 @@ FDFTAB         fcs       'TIME$'
                fdb       XDATE
                fcs       'GUID$'
                fdb       XGUID
+               fcs       'JSONQUERY$'
+               fdb       XQUERY
+               fcs       'XMLQUERY$'
+               fdb       XQUERY
+               fcs       'HTMLQUERY$'
+               fdb       XQUERY
+               fcs       'NETERR'
+               fdb       XNETER
+               fcs       'UCASE$'
+               fdb       XUCASE
                fcb       0
 
 * Match the word at CHARAD against table U. Found: NE, U at the handler,
@@ -5478,7 +5517,7 @@ XMSKL          tst       ,u+
                leau      2,u
                bra       XMATCH
 
-* Returns X = LADC6 to let BASIC run the statement, else FDINX (an RTS).
+* Returns X = LADC6 to let BASIC run the statement, else FDRTS.
 XCHK           pshs      d
                ldx       <CHARAD
                pshs      x
@@ -5496,7 +5535,7 @@ XCHK1          ldu       #FDFTAB
                beq       XCHKN
                jsr       <GETNCH
                jsr       [,u]
-               ldx       #FDINX
+               ldx       #FDRTS
                rts
 XCHKN          ldx       #LADC6
                rts
@@ -5608,6 +5647,978 @@ XGX            leas      37,s
 XGCMD          fcb       $E2,$BB,$E2,$02     OP_FUJI GENERATE_GUID, OP_FUJI SEND_ERROR
 XGRSP          fcb       $E2,$01             OP_FUJI SEND_RESPONSE
 
+XINIT          lda       #1
+               sta       NOPERR
+               ldx       #DVEC20
+               stx       RVEC20+1
+               ldx       #FDV23
+               stx       RVEC23+1
+               ldx       #FDV15
+               stx       RVEC15+1
+               rts
+
+* FujiNet network files: OPEN "I", "O", "D", "R", "P" (HTTP POST) or "K"
+* (HTTP DELETE) with a name starting N: or Nn:. Plain N: uses the unit
+* matching the file number.
+NETFIL         equ       $80                 FCBTYP of a FujiNet file
+NUNIT          equ       2                   FCB offsets
+NMODE          equ       3                   FujiNet open mode: bit 2 read, bit 3 write
+NRXI           equ       4
+NRXN           equ       5
+NTXN           equ       7                   (FCBPOS is 6)
+NECHO          equ       8                   Set by a read: drop output up to its line's CR
+NEOL           equ       9                   Line ending: 0 raw, 1 CR, 2 LF, 3 CRLF
+NLAST          equ       10                  Last character read
+NCHM           equ       11                  HTTP channel mode: 0 body, 3 set headers, 4 POST data
+NASCII         equ       12                  Set if query results are ASCII, ending in a space
+NOPERR         equ       $980                Last network OPEN's error, for NETERR(0); TRKTBL uses only $97E-$97F
+NRXB           equ       FCBCON              128-byte receive buffer
+NTXB           equ       FCBCON+128          128-byte send buffer
+
+* Handlers called through FDHK start with pshs u,y,x,d, which puts the X to
+* leave with at XHX,s, where to go next at XHGO,s and the caller's return
+* address at XHRET,s.
+XHX            equ       13
+XHGO           equ       15
+XHRET          equ       17
+
+* X = FCB of file DEVNUM, B = its type.
+XFCB           ldb       <DEVNUM
+               aslb
+               ldx       #FCBV1-2
+               ldx       b,x
+               ldb       FCBTYP,x
+               rts
+
+* X = FCB of file DEVNUM. ?NO ERROR or ?FM ERROR unless it's a FujiNet file.
+XNFCB          bsr       XFCB
+XNFCB1         cmpb      #NETFIL
+               beq       XNFCBX
+               tstb
+               lbne      XFMERR
+               jsr       FDOUT
+               fdb       LA3FB               ?NO ERROR
+XNFCBX         rts
+
+* Send $E3, unit A, command B and aux word U.
+XNHDR          pshs      x
+               pshs      u
+               pshs      b
+               pshs      a
+               lda       #$E3
+               pshs      a
+               leax      ,s
+               jsr       DWWrite
+               leas      1,s
+               puls      a,b
+               puls      u
+               puls      x,pc
+
+* Read the error byte for unit A into B. EQ if it's OK (1) or end of file (136).
+XNERR          pshs      u,x,a
+               ldb       #2
+               ldu       #0
+               ldy       #5
+               bsr       XNHDR
+               leas      -1,s
+               leax      ,s
+               ldy       #1
+               jsr       DWRead
+               puls      b
+               bcs       XNERRF
+               bne       XNERRF
+               cmpb      #1
+               beq       XNERRX
+               cmpb      #136
+               bra       XNERRX
+XNERRF         ldb       #144
+XNERRX         puls      a,x,u,pc
+
+* Fetch Y bytes of unit A's response into U. EQ if they all arrived.
+XNRSP          pshs      u,y,x,b,a
+               tfr       y,u
+               ldb       #1
+               ldy       #5
+               bsr       XNHDR
+               ldx       6,s
+               ldy       4,s
+               jsr       DWRead
+               bcc       XNRSPX
+               andcc     #$FB
+XNRSPX         puls      a,b,x,y,u,pc
+
+* Read Y bytes from FCB X's unit into U. EQ if they all arrived.
+XNREAD         pshs      u,y
+               tfr       y,u
+               lda       NUNIT,x
+               ldb       #'R
+               ldy       #5
+               bsr       XNHDR
+               bsr       XNERR
+               puls      y,u
+               bne       XNRDX
+               lda       NUNIT,x
+               bsr       XNRSP
+XNRDX          rts
+
+* Status of unit A into the 4 bytes at U: bytes waiting, connected, error.
+XNSTAT         pshs      u
+               ldb       #'S
+               ldu       #0
+               ldy       #5
+               lbsr      XNHDR
+               puls      u
+               bsr       XNERR
+               bne       XNSTAX
+               ldy       #4
+               bsr       XNRSP
+XNSTAX         rts
+
+* Send FCB X's buffered output. NE if the FujiNet reports an error.
+XNSEND         ldb       NTXN,x
+               beq       XNSENX
+               clra
+               ldb       NMODE,x
+               cmpb      #13
+               bne       XNSND1
+               lda       #4
+XNSND1         bsr       XNSETM
+               bne       XNSENX
+               ldb       NTXN,x
+               clr       NTXN,x
+               clra
+               tfr       d,u
+               pshs      d
+               lda       NUNIT,x
+               ldb       #'W
+               ldy       #5
+               lbsr      XNHDR
+               puls      y
+               pshs      x
+               leax      NTXB,x
+               jsr       DWWrite
+               puls      x
+               lda       NUNIT,x
+               lbsr      XNERR
+XNSENX         rts
+
+XNFLSH         bsr       XNSEND
+               beq       XNSENX
+XIOERR         jsr       FDOUT
+               fdb       LA619               ?IO ERROR
+
+* Flush FCB X's output and put its channel back in body mode, to read.
+XNBODY         bsr       XNFLSH
+               clra
+               bsr       XNSETM
+               bne       XIOERR
+               rts
+
+* Put FCB X's HTTP channel in mode A. NE if the FujiNet refuses.
+XNSETM         cmpa      NCHM,x
+               beq       XNSMX
+               sta       NCHM,x
+               tfr       a,b
+               clra
+               tfr       d,u
+               lda       NUNIT,x
+               ldb       #'M
+               ldy       #5
+               lbsr      XNHDR
+               lbra      XNERR
+XNSMX          rts
+
+* If FCB X's receive buffer is empty, refill it with what the FujiNet has.
+* Returns B = bytes buffered, and carry set if none are and none will come.
+XNFILL         ldb       NRXN,x
+               bne       XNFILX
+               bsr       XNBODY
+               leas      -4,s
+               leau      ,s
+               lda       NUNIT,x
+               lbsr      XNSTAT
+               bne       XNFEND
+               ldd       ,s
+               beq       XNFNO
+               cmpd      #128
+               bls       XNFIL1
+               ldd       #128
+XNFIL1         tfr       d,u
+               pshs      d
+               lda       NUNIT,x
+               ldb       #'R
+               ldy       #5
+               lbsr      XNHDR
+               lbsr      XNERR
+               puls      y
+               bne       XNFEND
+               leau      NRXB,x
+               lbsr      XNRSP
+               bne       XNFEND
+               tfr       y,d
+               stb       NRXN,x
+               clr       NRXI,x
+               leas      4,s
+               bsr       XSKLF
+               ldb       NRXN,x
+               beq       XNFILL
+XNFILX         andcc     #$FE
+               rts
+XNFNO          tst       2,s                 Connected?
+               beq       XNFEND
+               ldb       3,s
+               cmpb      #1                  No error?
+               bne       XNFEND
+               leas      4,s
+               clrb
+               rts
+XNFEND         leas      4,s
+               clrb
+               orcc      #$01
+               rts
+
+* After a CR, drop a buffered LF, so LOF doesn't count the rest of a CR LF.
+XSKLF          tst       NEOL,x
+               beq       XSKLX
+               lda       NLAST,x
+               cmpa      #CR
+               bne       XSKLX
+               ldb       NRXN,x
+               beq       XSKLX
+               ldb       NRXI,x
+               leau      NRXB,x
+               lda       b,u
+               cmpa      #LF
+               bne       XSKLX
+               sta       NLAST,x
+               inc       NRXI,x
+               dec       NRXN,x
+XSKLX          rts
+
+* EQ if A is a letter. A protocol follows N: or Nn:, but a disk drive number
+* follows a disk file named N or N1-N8.
+XALPHA         anda      #$DF
+               cmpa      #'A
+               blo       XALPHN
+               cmpa      #'Z
+               bhi       XALPHN
+               orcc      #$04
+               rts
+XALPHN         andcc     #$FB
+               rts
+
+* OPEN: called in place of LC938 with X = default extension, the mode at
+* XHRET+2,s and the file number at XHRET+3,s.
+XOPEN          pshs      u,y,x,d
+               ldd       #LC938
+               std       XHGO,s
+               ldx       <CHARAD
+               pshs      x
+               jsr       FDOUT
+               fdb       L8748               X = name, B = length
+               lda       ,x
+               anda      #$DF
+               cmpa      #'N
+               lbne      XOPNN
+               cmpb      #2
+               lblo      XOPNN
+               lda       1,x
+               cmpa      #':
+               beq       XOPN0
+               suba      #'0                 Nn: unit
+               lbeq      XOPNN
+               cmpa      #8
+               lbhi      XOPNN
+               cmpb      #3
+               lblo      XOPNN
+               pshs      a
+               lda       2,x
+               cmpa      #':
+               bne       XOPNP
+               cmpb      #4
+               blo       XOPNP
+               lda       3,x
+               bsr       XALPHA
+XOPNP          puls      a
+               lbne      XOPNN
+               bra       XOPN1
+XOPN0          cmpb      #3
+               lblo      XOPNN
+               lda       2,x
+               bsr       XALPHA
+               lbne      XOPNN
+               clra                          Unit from the file number
+XOPN1          leas      2,s
+               pshs      b,a                 Name length, unit
+               pshs      x                   Name
+               ldb       XHRET+4+3,s         File number
+               ldx       #FCBV1-2
+               aslb
+               ldx       b,x
+               tst       FCBTYP,x
+               lbne      XAOERR
+               lda       2,s
+               bne       XOPN2
+               lda       XHRET+4+3,s
+               cmpa      #8
+               lbhi      XDNERR
+               sta       2,s
+XOPN2          ldb       FCBACT              Is another file using the unit?
+XOPNU          pshs      x
+               ldx       #FCBV1-2
+               aslb
+               ldx       b,x
+               lsrb
+               lda       FCBTYP,x
+               cmpa      #NETFIL
+               bne       XOPNU2
+               lda       NUNIT,x
+               cmpa      2+2,s
+               lbeq      XAOERR
+XOPNU2         puls      x
+               decb
+               bne       XOPNU
+               puls      u                   Copy the name into the FCB buffer
+               leay      NRXB,x
+               ldb       1,s
+XOPNC          lda       ,u+
+               sta       ,y+
+               decb
+               bne       XOPNC
+               ldb       1,s
+XOPNZ          clr       ,y+
+               incb
+               bne       XOPNZ
+               lda       #3                  Line ending: CRLF
+               sta       1,s
+               jsr       <GETCCH
+               cmpa      #',
+               bne       XOPN3
+               jsr       FDOUT
+               fdb       SYNCOMMA
+               jsr       FDOUT
+               fdb       LB70B               B = line ending
+               cmpb      #3
+               lbhi      XFCERR
+               stb       1,s
+XOPN3          jsr       FDOUT
+               fdb       LA5C7               ?SN ERROR if more chars
+               lda       XHRET+2+2,s         Mode
+               ldb       #4
+               cmpa      #'I
+               beq       XOPN4
+               ldb       #8
+               cmpa      #'O
+               beq       XOPN4
+               ldb       #13
+               cmpa      #'P
+               beq       XOPN4
+               ldb       #5
+               cmpa      #'K
+               beq       XOPN4
+               ldb       #12
+               cmpa      #'D
+               beq       XOPN4
+               cmpa      #'R
+               lbne      XFMERR
+XOPN4          stb       NMODE,x
+               tfr       b,a
+               clrb                          FujiNet translation off: FujiDOS does it
+               tfr       d,u
+               ldb       1,s
+               stb       NEOL,x
+               lda       ,s
+               sta       NUNIT,x
+               ldb       #'O
+               ldy       #5
+               lbsr      XNHDR
+               pshs      x
+               leax      NRXB,x
+               ldy       #256
+               jsr       DWWrite
+               puls      x
+               lda       NUNIT,x
+               lbsr      XNERR
+               beq       XOPN5
+               leas      -4,s                The status after a failed OPEN says why
+               leau      ,s
+               lda       NUNIT,x
+               lbsr      XNSTAT
+               bne       XOPNE
+               ldb       3,s
+XOPNE          stb       NOPERR
+               lbra      XIOERR
+XOPN5          stb       NOPERR
+               clr       NRXI,x
+               clr       NRXN,x
+               clr       FCBPOS,x
+               clr       NTXN,x
+               clr       NECHO,x
+               clr       NLAST,x
+               clr       NCHM,x
+               clr       FCBCFL,x
+               lda       #$FF                So LC807's already-open check never takes it for a disk file
+               sta       FCBDRV,x
+               lda       #NETFIL
+               sta       FCBTYP,x
+               leas      2,s
+               ldd       #FDDROP             Return past DVEC0's mode and file number
+               std       XHX,s
+               ldd       #FDDRPJ
+               std       XHGO,s
+               puls      d,x,y,u,pc
+XOPNN          puls      x                   Not a FujiNet name: let Disk BASIC parse it
+               stx       <CHARAD
+               puls      d,x,y,u,pc
+
+XAOERR         jsr       FDOUT
+               fdb       LA61C               ?AO ERROR
+XDNERR         jsr       FDOUT
+               fdb       LA61F               ?DN ERROR
+XFMERR         jsr       FDOUT
+               fdb       LA616               ?FM ERROR
+XFCERR         jsr       FDOUT
+               fdb       LB44A               ?FC ERROR
+
+* Character out to disk file DEVNUM: A = character.
+XOUT           pshs      u,y,x,d
+               ldd       #LCC22
+               std       XHGO,s
+               lbsr      XFCB
+               cmpb      #NETFIL
+               bne       XOUTX
+               lda       ,s
+               ldb       NMODE,x             Not writable: drop it, like Disk BASIC
+               bitb      #8
+               beq       XOUT3
+               tst       NECHO,x             LINE INPUT and INPUT echo what they read
+               beq       XOUT0
+               cmpa      #CR
+               bne       XOUT3
+               clr       NECHO,x
+               bra       XOUT3
+XOUT0          cmpa      #CR
+               bne       XOUT1
+               ldb       NEOL,x
+               cmpb      #2
+               bne       XOUTC
+               lda       #LF
+XOUTC          cmpb      #3
+               bne       XOUT1
+               bsr       XPUT
+               lda       #LF
+XOUT1          bsr       XPUT
+               lda       ,s
+               cmpa      #CR
+               bne       XOUT2
+               clr       FCBPOS,x
+               lbsr      XNFLSH
+               bra       XOUT3
+XOUT2          cmpa      #$20
+               blo       XOUT3
+               inc       FCBPOS,x
+XOUT3          ldd       #FDDROP
+               std       XHGO,s
+XOUTX          puls      d,x,y,u,pc
+
+* Add A to FCB X's send buffer, sending it when full.
+XPUT           ldb       NTXN,x
+               leau      NTXB,x
+               sta       b,u
+               incb
+               stb       NTXN,x
+               cmpb      #128
+               lblo      XPUTX
+               lbra      XNFLSH
+XPUTX          rts
+
+* Character in: returns A, or sets CINBFL at the end of the data.
+XIN            pshs      u,y,x,d
+               ldd       #DVEC4
+               std       XHGO,s
+               tst       <DEVNUM
+               ble       XINX
+               lbsr      XFCB
+               cmpb      #NETFIL
+               bne       XINX
+               ldd       #FDDROP
+               std       XHGO,s
+               clr       <CINBFL
+               tst       FCBCFL,x            A character Disk BASIC's INPUT put back
+               beq       XIN1
+               clr       FCBCFL,x
+               lda       FCBCDT,x
+               bra       XIN5
+XIN1           ldb       NRXN,x
+               bne       XIN2
+               lbsr      XNFILL
+               bcs       XINE
+               tstb
+               bne       XIN2
+               ldu       XHRET+4,s           Disk BASIC's INPUT looking for an LF after a CR:
+               cmpu      #LCDB0+2            FujiDOS has already dropped it, so don't wait
+               bne       XIN1W
+               lda       #LF
+               bra       XIN5
+XIN1W          jsr       FDOUT
+               fdb       LADEB               BREAK check
+               bra       XIN1
+XIN2           dec       NRXN,x
+               ldb       NRXI,x
+               inc       NRXI,x
+               leau      NRXB,x
+               lda       b,u
+               tst       NEOL,x
+               beq       XIN4
+               cmpa      #LF                 CR, LF and CR LF all end a line
+               bne       XIN3
+               ldb       NLAST,x
+               sta       NLAST,x
+               cmpb      #CR
+               beq       XIN1
+               lda       #CR
+XIN3           sta       NLAST,x
+               pshs      a
+               lbsr      XSKLF
+               puls      a
+XIN4           ldu       XHRET+2,s           Only BASIC's line reader (LA171) echoes
+               cmpu      #LA171+2
+               bne       XIN5
+               ldb       #$FF
+               stb       NECHO,x
+XIN5           sta       ,s
+XINX           puls      d,x,y,u,pc
+XINE           tst       NEOL,x              End a last line that has no line ending
+               beq       XINE1
+               lda       NLAST,x
+               beq       XINE1
+               cmpa      #CR
+               beq       XINE1
+               cmpa      #LF
+               beq       XINE1
+               lda       #CR
+               bra       XIN3
+XINE1          com       <CINBFL
+               bra       XIN4
+
+* INPUT # and PRINT # file type check: A = INPFIL or OUTFIL.
+XTYP           pshs      u,y,x,d
+               ldd       #LC744
+               std       XHGO,s
+               lbsr      XFCB
+               cmpb      #NETFIL
+               bne       XTYPX
+               ldb       NMODE,x
+               lda       ,s
+               cmpa      #INPFIL
+               bne       XTYP1
+               bitb      #4
+               bra       XTYP2
+XTYP1          bitb      #8
+XTYP2          bne       XTYP3
+               ldd       #LC845              ?FM ERROR
+               std       XHGO,s
+               bra       XTYPX
+XTYP3          ldd       ,s                  LC866 pulls A and B from where the return address is
+               std       XHRET,s
+               ldd       #LC866
+               std       XHGO,s
+XTYPX          puls      d,x,y,u,pc
+
+* EOF: returns B = $FF at the end, else 0.
+XEOF           pshs      u,y,x,d
+               ldd       #LC744
+               std       XHGO,s
+               lbsr      XFCB
+               cmpb      #NETFIL
+               bne       XEOFX
+               clr       1,s
+               tst       FCBCFL,x
+               bne       XEOF1
+               lbsr      XNFILL
+               bcc       XEOF1
+               com       1,s
+XEOF1          ldd       #LA5E4
+               std       XHX,s
+               ldd       #FDDRPJ
+               std       XHGO,s
+XEOFX          puls      d,x,y,u,pc
+
+* LOF: bytes ready to read.
+XLOF           pshs      u,y,x,d
+               jsr       FDOUT
+               fdb       LCE19               X = FCB
+               stx       XHX,s
+               ldd       #LOF+2
+               std       XHGO,s
+               lda       FCBTYP,x
+               cmpa      #NETFIL
+               bne       XLOFX
+               lbsr      XNBODY
+               leas      -4,s
+               leau      ,s
+               lda       NUNIT,x
+               lbsr      XNSTAT
+               bne       XLOF0
+               ldd       ,s
+               bra       XLOF1
+XLOF0          clra
+               clrb
+XLOF1          leas      4,s
+               addb      NRXN,x
+               adca      #0
+               tst       FCBCFL,x
+               beq       XLOF2
+               addd      #1
+XLOF2          std       ,s
+               ldd       #LCE14
+               std       XHGO,s
+XLOFX          puls      d,x,y,u,pc
+
+* LOC: -1 while a FujiNet file is connected, else 0.
+XLOC           pshs      u,y,x,d
+               jsr       FDOUT
+               fdb       LCE19               X = FCB
+               stx       XHX,s
+               ldd       #LOC+2
+               std       XHGO,s
+               lda       FCBTYP,x
+               cmpa      #NETFIL
+               bne       XLOCX
+               lbsr      XNFLSH
+               leas      -4,s
+               leau      ,s
+               lda       NUNIT,x
+               lbsr      XNSTAT
+               bne       XLOCN
+               tst       2,s
+               beq       XLOCN
+               ldd       #-1
+               bra       XLOC1
+XLOCN          clra
+               clrb
+XLOC1          leas      4,s
+               std       ,s
+               ldd       #GIVABF
+               std       XHGO,s
+XLOCX          puls      d,x,y,u,pc
+
+* Close FCB X: returns A = its type, after closing it if it's a FujiNet file.
+XCLS           pshs      u,y,x,d
+               ldx       XHX,s
+               stx       <FCBTMP
+               lda       FCBTYP,x
+               sta       ,s
+               ldd       #FDRTS
+               std       XHGO,s
+               lda       FCBTYP,x
+               cmpa      #NETFIL
+               bne       XCLSX
+               clr       FCBTYP,x
+               lbsr      XNSEND
+               lda       NMODE,x             The FujiNet sends a POST or DELETE on the first status
+               cmpa      #13
+               beq       XCLS1
+               cmpa      #5
+               bne       XCLS2
+XCLS1          clra
+               lbsr      XNSETM
+               bne       XCLS2
+               leas      -4,s
+               leau      ,s
+               lda       NUNIT,x
+               lbsr      XNSTAT
+               leas      4,s
+XCLS2          lda       NUNIT,x
+               ldb       #'C
+               ldu       #0
+               ldy       #5
+               lbsr      XNHDR
+               lbsr      XNERR
+               ldd       #FDDROP
+               std       XHGO,s
+XCLSX          puls      d,x,y,u,pc
+
+* HEADER #f,"Name: value": add an HTTP request header to network file f.
+XHEAD          ldb       <DEVNUM
+               pshs      b
+               jsr       FDOUT
+               fdb       LA5A5               DEVNUM = file number
+               jsr       FDOUT
+               fdb       SYNCOMMA
+               jsr       FDOUT
+               fdb       LB156
+               jsr       FDOUT
+               fdb       LB654               X = string, B = length
+               pshs      x,b
+               jsr       FDOUT
+               fdb       LA5C7               ?SN ERROR if more chars
+               lbsr      XNFCB
+               lbsr      XNFLSH
+               lda       #3
+               lbsr      XNSETM
+               lbne      XIOERR
+               ldb       ,s
+               beq       XHEADX
+               clra
+               tfr       d,u
+               pshs      x
+               lda       NUNIT,x
+               ldb       #'W
+               ldy       #5
+               lbsr      XNHDR
+               ldx       3,s
+               ldb       2,s
+               clra
+               tfr       d,y
+               jsr       DWWrite
+               puls      x
+               lda       NUNIT,x
+               lbsr      XNERR
+               lbne      XIOERR
+XHEADX         puls      b,x
+               puls      b
+               stb       <DEVNUM
+               rts
+
+* JSONPARSE, HTMLPARSE and XMLPARSE #f: parse file f's data for queries.
+XJPAR          ldb       #1
+               bra       XPARS
+XHPAR          ldb       #2
+               bra       XPARS
+XXPAR          ldb       #3
+XPARS          pshs      b
+               ldb       <DEVNUM
+               pshs      b
+               jsr       FDOUT
+               fdb       LA5A5               DEVNUM = file number
+               jsr       FDOUT
+               fdb       LA5C7               ?SN ERROR if more chars
+               lbsr      XNFCB
+               lbsr      XNBODY
+               clr       NRXN,x
+               clr       FCBCFL,x
+               lda       1,s                 Parser type in both aux bytes
+               tfr       a,b
+               tfr       d,u
+               lda       NUNIT,x
+               ldb       #$FC
+               ldy       #5
+               lbsr      XNHDR
+               lbsr      XNERR
+               lbne      XIOERR
+               lda       NUNIT,x             Plain ASCII results; older firmware refuses this
+               ldb       #$FB
+               ldu       #$0010
+               ldy       #5
+               lbsr      XNHDR
+               clr       NASCII,x
+               lbsr      XNERR
+               bne       XPARS1
+               com       NASCII,x
+XPARS1         lda       NUNIT,x
+               ldb       #'P
+               ldu       #0
+               ldy       #5
+               lbsr      XNHDR
+               lbsr      XNERR
+               lbne      XIOERR
+               puls      b
+               stb       <DEVNUM
+               puls      b,pc
+
+* JSONQUERY$, HTMLQUERY$ and XMLQUERY$(f,q$): the value q$ selects in file
+* f's parsed data, at most 255 characters, without its line ending.
+XQUERY         lbsr      XFARG
+               lbsr      XNBODY
+               clr       NRXN,x
+               clr       FCBCFL,x
+               pshs      x
+               jsr       FDOUT
+               fdb       SYNCOMMA
+               jsr       FDOUT
+               fdb       LB156
+               jsr       FDOUT
+               fdb       LB654               X = query, B = length
+               tfr       x,u
+               ldx       ,s
+               leay      FCBCON,x
+               pshs      b
+               tstb
+               beq       XQZ
+XQC            lda       ,u+
+               sta       ,y+
+               decb
+               bne       XQC
+XQZ            puls      b
+XQZL           clr       ,y+                 Zero-pad to 256
+               incb
+               bne       XQZL
+               jsr       FDOUT
+               fdb       LB267               )
+               ldx       ,s
+               lda       NUNIT,x
+               ldb       #'Q
+               ldu       #0
+               ldy       #5
+               lbsr      XNHDR
+               leax      FCBCON,x
+               ldy       #256
+               jsr       DWWrite
+               ldx       ,s
+               lda       NUNIT,x
+               lbsr      XNERR
+               lbne      XIOERR
+               leas      -4,s
+               leau      ,s
+               lbsr      XNSTAT
+               bne       XQST0
+               ldd       ,s
+               bra       XQST1
+XQST0          clra                          A failed status reads as nothing
+               clrb
+XQST1          leas      4,s
+               pshs      d
+               tsta
+               beq       XQLEN1
+               ldb       #255
+XQLEN1         jsr       FDOUT
+               fdb       LB50F               X = B bytes of string space
+               pshs      x
+               ldx       4,s
+               ldb       STRDES
+               clra
+               pshs      d
+               ldd       4,s
+               subd      ,s++
+               std       2,s                 What doesn't fit
+               ldb       STRDES
+               beq       XQREST
+               clra
+               tfr       d,y
+               ldu       ,s
+               lbsr      XNREAD
+               lbne      XIOERR
+XQREST         ldd       2,s                 Discard what doesn't fit
+               beq       XQTRIM
+               cmpd      #128
+               bls       XQR1
+               ldd       #128
+XQR1           pshs      d
+               tfr       d,y
+               leau      NRXB,x
+               lbsr      XNREAD
+               lbne      XIOERR
+               ldd       4,s
+               subd      ,s++
+               std       2,s
+               bra       XQREST
+XQTRIM         puls      x
+               ldb       STRDES
+               abx
+               ldu       2,s
+               tst       NASCII,u            The ASCII fold turns the line ending into a space
+               beq       XQT1
+               tstb
+               beq       XQT1
+               lda       -1,x
+               cmpa      #$20
+               bne       XQT1
+               leax      -1,x
+               decb
+XQT1           tstb
+               beq       XQTX
+               lda       ,-x
+               cmpa      #CR
+               beq       XQT2
+               cmpa      #LF
+               bne       XQTX
+XQT2           decb
+               bra       XQT1
+XQTX           stb       STRDES
+               leas      4,s
+               jsr       FDOUT
+               fdb       LB54C               Push the string
+               rts
+
+* Parse "(f" for a function: X = FCB of FujiNet file f.
+XFARG          jsr       FDOUT
+               fdb       LB26A               (
+               jsr       FDOUT
+               fdb       LB70B               B = file number
+XFARG1         tstb
+               lbeq      XDNERR
+               cmpb      FCBACT
+               lbhi      XDNERR
+               aslb
+               ldx       #FCBV1-2
+               ldx       b,x
+               ldb       FCBTYP,x
+               lbra      XNFCB1
+
+* NETERR(f): the FujiNet's error code for file f: 1 OK, 136 end of data.
+* NETERR(0): the last network OPEN's.
+XNETER         jsr       FDOUT
+               fdb       LB26A               (
+               jsr       FDOUT
+               fdb       LB70B
+               pshs      b
+               jsr       FDOUT
+               fdb       LB267               )
+               puls      b
+               tstb
+               bne       XNETE2
+               ldb       NOPERR
+               bra       XNETE3
+XNETE2         bsr       XFARG1
+               lbsr      XNFLSH
+               leas      -4,s
+               leau      ,s
+               lda       NUNIT,x
+               lbsr      XNSTAT
+               bne       XNETE1              B = the status command's own error
+               ldb       3,s
+XNETE1         leas      4,s
+XNETE3         jsr       FDOUT
+               fdb       LB4F3               Return B
+               rts
+
+* UCASE$(s$): s$ with a-z in capitals. Reserves before freeing s$, as LEFT$ does.
+XUCASE         jsr       FDOUT
+               fdb       LB26A               (
+               jsr       FDOUT
+               fdb       LB156
+               jsr       FDOUT
+               fdb       LB146               ?TM ERROR unless a string
+               jsr       FDOUT
+               fdb       LB267               )
+               ldx       <FPA0+2
+               stx       <V4D
+               ldb       ,x
+               jsr       FDOUT
+               fdb       LB50F               X = B bytes of string space
+               ldx       <V4D
+               jsr       FDOUT
+               fdb       LB659               X = s$, B = its length
+               ldu       <STRDES+2
+               tstb
+               beq       XUCX
+XUCL           lda       ,x+
+               cmpa      #'a
+               blo       XUC1
+               cmpa      #'z
+               bhi       XUC1
+               suba      #$20
+XUC1           sta       ,u+
+               decb
+               bne       XUCL
+XUCX           jsr       FDOUT
+               fdb       LB54C
+               rts
+
+               IFGT      *-$FE00
+               error     "Upper 8K past $FDFF: a CoCo 3 shows its vector page at $FE00-$FEFF"
+               ENDC
                fill      $39,MAGICDG+$4000-*
 
                end LC00C

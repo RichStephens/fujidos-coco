@@ -13,10 +13,53 @@ time and also runs on a CoCo 2.
 | `TIME$` | The FujiNet's time as `HH:MM:SS` (24-hour), or `""` if it doesn't answer |
 | `DATE$` | The FujiNet's date as `YYYY-MM-DD`, or `""` if it doesn't answer |
 | `GUID$` | A new random GUID from the FujiNet, 36 lowercase characters, or `""` if it doesn't answer |
+| `UCASE$(s$)` | `s$` with a-z in capitals |
 
 CoCo 3 BASIC leaves almost no free command tokens, so FujiDOS commands are
 plain words. They are reserved like BASIC keywords: `CONFIG=1` is a syntax
 error, not an assignment, and so is `TIME$="12:00:00"`.
+
+## Network files
+
+A file name starting `N:` opens a FujiNet network device on an ordinary file
+number, for `PRINT #`, `INPUT #`, `LINE INPUT #`, `EOF`, `LOF` and `CLOSE`:
+
+```
+OPEN "I",#1,"N:https://icanhazdadjoke.com/"
+```
+
+`N:` uses the network unit matching the file number (1-8); `N1:`-`N8:` picks
+one. Two open files can't share a unit. A protocol name must follow the
+colon, so `"N:1"` is still disk file `N` on drive 1.
+
+| Mode | Use |
+|---|---|
+| `I` | Read (HTTP GET) |
+| `O` | Write (HTTP PUT, sent at `CLOSE`) |
+| `D`, `R` | Read and write (HTTP GET that takes headers, TCP) |
+| `P` | HTTP POST: `PRINT #` the body, then read the reply |
+| `K` | HTTP DELETE, then read the reply |
+
+An optional last argument sets the line ending, `OPEN "D",#1,"N:...",e`: 0 raw,
+1 CR, 2 LF, 3 CR LF (the default). `PRINT #` ends lines with it; reading
+accepts CR, LF or CR LF unless it is 0.
+
+| Command | What it does |
+|---|---|
+| `HEADER #f,"Name: value"` | Adds an HTTP request header (modes `D`, `R` and `P`) |
+| `JSONPARSE #f`, `XMLPARSE #f`, `HTMLPARSE #f` | Parses the file's data for queries |
+| `JSONQUERY$(f,q$)`, `XMLQUERY$(f,q$)`, `HTMLQUERY$(f,q$)` | The value `q$` selects, at most 255 characters |
+| `LOF(f)` | Bytes ready to read |
+| `LOC(f)` | -1 while connected, else 0 |
+| `NETERR(f)` | The FujiNet's error code: 1 OK, 136 end of data, 170 not found, 200 connection refused |
+| `NETERR(0)` | The last network `OPEN`'s error code, 1 if it worked |
+
+A failed `OPEN` gives `?IO ERROR`. Disk BASIC has no `ON ERROR`, so check
+`NETERR(0)` after the program stops.
+
+Query results come back as plain ASCII: entities decoded and accented letters
+folded to plain ones. XML and HTML parsing, ASCII results and the reason for a
+failed `OPEN` need FujiNet firmware newer than 1.6.1.
 
 ## Building
 
@@ -30,6 +73,9 @@ This produces `fujidos.rom`, a 16K image for $C000-$FEFF; the last 256 bytes
 are unused. A CoCo 3 keeps the upper 8K in RAM block $37, which BASIC leaves
 unused. Every statement and expression runs through it, so a program that
 overwrites that block crashes BASIC.
+
+`make disk` builds `fdtests.dsk` from `tests/*.bas` (needs `decb` from
+ToolShed): WEATHER, DADJOKE and NETTEST, a self-check against httpbin.org.
 
 ## Credits
 
