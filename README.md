@@ -16,6 +16,7 @@ time and also runs on a CoCo 2.
 | `UCASE$(s$)` | `s$` with a-z in capitals |
 | `FPRINT ON`, `FPRINT OFF` | Sends printer output (`PRINT #-2`, `LLIST`) to the FujiNet printer, or back to the serial port |
 | `BACKUP #s TO #d` | Copies the disk image in FujiNet drive `s` (0-3) to the root of the SD card and mounts the copy in drive `d` |
+| `DSKINI #d,"NAME"` | Creates blank disk image `NAME.DSK` in the root of the SD card and mounts it in FujiNet drive `d` |
 
 CoCo 3 BASIC leaves almost no free command tokens, so FujiDOS commands are
 plain words. They are reserved like BASIC keywords: `CONFIG=1` is a syntax
@@ -24,8 +25,9 @@ error, not an assignment, and so is `TIME$="12:00:00"`.
 Get the printout from the printer page of the FujiNet's web interface. Each
 download starts a new printout.
 
-The `BACKUP #` copy keeps the image's file name and replaces a file of that
-name already on the card. Without the `#`, `BACKUP` is Disk BASIC's.
+The `BACKUP #` copy keeps the image's file name. Both commands give
+`?AE ERROR` if the file is already on the card. Without the `#`, `BACKUP` and
+`DSKINI` are Disk BASIC's.
 
 ## Network files
 

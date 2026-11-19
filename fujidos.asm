@@ -619,7 +619,7 @@ LC1F1          fdb       DIR                 DIR / CE
                fdb       WRITE               WRITE / D9
                fdb       VERIFY              VERIFY / DA
                fdb       UNLOAD              UNLOAD / DB
-               fdb       DSKINI              DSKINI /DC
+               fdb       FDHDI               DSKINI /DC
                fdb       FDHBK               BACKUP / DD
                fdb       COPY                COPY / DE
                fdb       DSKI                DSKI$ / DF
@@ -5383,6 +5383,8 @@ FDH12          bsr       FDHK
                fdb       XP12
 FDHBK          bsr       FDHK
                fdb       XBKP
+FDHDI          bsr       FDHK
+               fdb       XDSK
 * Run the upper-8K handler named after the bsr with the caller's registers.
 * It sets the X to leave with and where to go next (XHX and XHGO).
 FDHK           pshs      x
@@ -6716,40 +6718,45 @@ XPCL1          lbsr      XPEND
 XPCLX          puls      d,x,y,u,pc
 
 * BACKUP #s TO #d: copy the image in FujiNet drive s to the root of the SD
-* card and mount the copy in drive d. Without the #, Disk BASIC's BACKUP.
+* card and mount the copy in drive d.
+* DSKINI #d,"NAME": create blank image NAME.DSK there and mount it in drive d.
+* Without the #, Disk BASIC's own commands.
+XDSK           pshs      u,y,x,d
+               ldx       #DSKINI2
+               bra       XBKP0
 XBKP           pshs      u,y,x,d
-               ldx       #LA61F              ?DN ERROR with no drive numbers
-               tsta
-               beq       XBKPGO
-               cmpa      #':
-               beq       XBKPGO
                ldx       #BACKUP+4           Past its test for no drive numbers
-               cmpa      #'#
-               beq       XBKP1
+XBKP0          tsta
+               beq       XBKPDN
+               cmpa      #':
+               bne       XBKPGO
+XBKPDN         ldx       #LA61F              ?DN ERROR with no drive numbers
 XBKPGO         stx       XHGO,s
-               puls      d,x,y,u,pc
-XBKP1          ldx       #FDRTS
-               stx       XHGO,s
+               cmpa      #'#
+               lbne      XBKPX
+               ldd       #FDRTS
+               std       XHGO,s
+               cmpx      #DSKINI2
+               lbeq      XDSK1
                lbsr      XBDRV
                pshs      b
                ldb       #TOKEN_TO
                jsr       FDOUT
                fdb       LB26F
                lbsr      XBDRV
-               pshs      b                   ,s destination, 1,s source
+               pshs      b
                jsr       FDOUT
                fdb       LA5C7               ?SN ERROR if more chars
                lda       ,s
                cmpa      1,s
                lbeq      XFCERR
-               jsr       FDOUT
-               fdb       DVEC7               Close all files
+               lbsr      XBFRM
                ldx       #XBSLOT
                ldy       #2
                lbsr      XBCMD
                ldy       #4*38
                lbsr      XBRSP
-               ldb       1,s
+               ldb       XBS,u
                lda       #38
                mul
                addd      #DBUF0
@@ -6758,26 +6765,9 @@ XBKP1          ldx       #FDRTS
                cmpa      #8
                lbhs      XIOERR              Nothing mounted
                andb      #3
-               pshs      d
-               ldx       #XBHOST
-               ldy       #2
-               lbsr      XBCMD
-               ldy       #8*32
-               lbsr      XBRSP
-               ldx       #DBUF0
-               clrb
-XBKP2          ldu       ,x
-               cmpu      #$5344              "SD"
-               bne       XBKP3
-               tst       2,x
-               beq       XBKP4
-XBKP3          leax      32,x
-               incb
-               cmpb      #8
-               blo       XBKP2
-               lbra      XIOERR
-XBKP4          pshs      b                   ,s SD host, source host, mode, destination, 4,s source
-               lda       4,s
+               std       XBH,u
+               lbsr      XBSD
+               lda       XBS,u
                pshs      a
                ldd       #$E2DA              OP_FUJI GET_DEVICE_FULLPATH
                pshs      d
@@ -6788,40 +6778,33 @@ XBKP4          pshs      b                   ,s SD host, source host, mode, dest
                ldy       #256
                lbsr      XBRSP
                ldx       #DBUF0
-               leau      ,x                  U follows the last /
+               leay      ,x                  Y follows the last /
 XBKP5          lda       ,x+
                beq       XBKP6
                cmpa      #'/
                bne       XBKP5
-               leau      ,x
+               leay      ,x
                bra       XBKP5
 XBKP6          leax      -1,x
-               cmpx      #DBUF0+253          Room for "|/"
+               cmpx      #DBUF0+120          Room for "|" and the copy's path
                lbhi      XFCERR
-               lda       1,s
-               cmpa      ,s
-               bne       XBKP7
-               cmpu      #DBUF0+1            Already in the SD card's root
-               lbls      XFCERR
-XBKP7          pshs      x                   End of the source path
-               ldd       #$7C2F              "|/": the copy goes in the root
-               std       ,x++
-               ldy       #DBUF1              The copy's path, zero filled
-               stb       ,y+
-XBKP8          cmpu      ,s
-               bhs       XBKP9
-               lda       ,u+
+               pshs      x
+               ldx       #DBUF1
+               lda       #'/
                sta       ,x+
-               sta       ,y+
-               cmpx      #DBUF0+255
-               blo       XBKP8
-               lbra      XFCERR
-XBKP9          clr       ,x
-               leas      2,s
-XBKPA          clr       ,y+
-               cmpy      #DBUF1+256
-               blo       XBKPA
-               ldd       ,s
+XBKP8          lda       ,y+
+               sta       ,x+
+               bne       XBKP8
+               lbsr      XBZF
+               puls      x
+               lda       #'|
+               sta       ,x+
+               ldy       #DBUF1
+XBKP9          lda       ,y+
+               sta       ,x+
+               bne       XBKP9
+               lbsr      XBEX
+               ldd       XBSDH,u
                exg       a,b
                addd      #$0101              COPY_FILE counts hosts from 1
                pshs      d
@@ -6832,12 +6815,71 @@ XBKPA          clr       ,y+
                jsr       DWWrite
                leas      4,s
                ldx       #DBUF0
-               ldy       #256
-               bsr       XBCMD
-               lda       2,s
+               lbra      XDSK5
+
+XDSK1          lbsr      XBDRV
+               pshs      b
+               pshs      b
+               jsr       FDOUT
+               fdb       LB26D               Comma
+               jsr       FDOUT
+               fdb       LB156
+               jsr       FDOUT
+               fdb       LB654               B = length, X = string
+               jsr       FDOUT
+               fdb       LA5C7               ?SN ERROR if more chars
+               decb
+               cmpb      #100
+               lbhs      XFCERR              Empty or too long
+               incb
+               ldy       #DBUF1
+               lda       #'/
+               sta       ,y+
+XDSK2          lda       ,x+
+               sta       ,y+
+               decb
+               bne       XDSK2
+               lda       -4,y                Add .DSK unless it is there in either case
+               cmpa      #'.
+               bne       XDSK3
+               ldd       -3,y
+               anda      #$DF
+               andb      #$DF
+               cmpd      #$4453
+               bne       XDSK3
+               lda       -1,y
+               anda      #$DF
+               cmpa      #'K
+               beq       XDSK4
+XDSK3          ldd       #$2E44
+               std       ,y++
+               ldd       #$534B
+               std       ,y++
+XDSK4          leax      ,y
+               lbsr      XBZF
+               lbsr      XBFRM
+               lda       #2                  Read and write
+               sta       XBM,u
+               lbsr      XBSD
+               lbsr      XBEX
+               lda       XBSDH,u
+               ldb       XBD,u
+               pshs      d
+               lda       #1                  One 35-track disk
                pshs      a
-               ldb       1,s
-               lda       4,s
+               ldd       #$E2E7              OP_FUJI NEW_DISK
+               pshs      d
+               leax      ,s
+               ldy       #5
+               jsr       DWWrite
+               leas      5,s
+               ldx       #DBUF1
+XDSK5          ldy       #256
+               lbsr      XBCMD
+               lda       XBM,u               Put the file named at DBUF1 in drive XBD
+               pshs      a
+               lda       XBD,u
+               ldb       XBSDH,u
                pshs      d
                ldd       #$E2E2              OP_FUJI SET_DEVICE_FULLPATH
                pshs      d
@@ -6847,17 +6889,106 @@ XBKPA          clr       ,y+
                leas      5,s
                ldx       #DBUF1
                ldy       #256
-               bsr       XBCMD
-               lda       3,s
-               ldb       2,s
+               lbsr      XBCMD
+               lda       XBD,u
+               ldb       XBM,u
                pshs      d
                ldd       #$E2F8              OP_FUJI MOUNT_IMAGE
                pshs      d
                leax      ,s
                ldy       #4
-               bsr       XBCMD
+               lbsr      XBCMD
                leas      9,s
-               puls      d,x,y,u,pc
+XBKPX          puls      d,x,y,u,pc
+
+* The frame at U. The caller pushed the source and destination drives.
+XBSDH          equ       0                   SD card's host slot
+XBH            equ       1                   Source's host slot
+XBM            equ       2                   Mode: 1 read, 2 write
+XBD            equ       3
+XBS            equ       4
+* Close all files and make the frame.
+XBFRM          jsr       FDOUT
+               fdb       DVEC7
+               puls      x
+               leas      -3,s
+               leau      ,s
+               jmp       ,x
+
+* Zero fill DBUF1 from X.
+XBZF           clr       ,x+
+               cmpx      #DBUF1+256
+               blo       XBZF
+               rts
+
+* Find and mount the host named SD: ?IO ERROR if there is none.
+XBSD           ldx       #XBHOST
+               ldy       #2
+               lbsr      XBCMD
+               ldy       #8*32
+               lbsr      XBRSP
+               ldx       #DBUF0
+               clrb
+XBSD1          ldy       ,x
+               cmpy      #$5344              "SD"
+               bne       XBSD2
+               tst       2,x
+               beq       XBSD3
+XBSD2          leax      32,x
+               incb
+               cmpb      #8
+               blo       XBSD1
+               lbra      XIOERR
+XBSD3          stb       XBSDH,u
+               pshs      b
+               ldd       #$E2F9              OP_FUJI MOUNT_HOST
+               pshs      d
+               leax      ,s
+               ldy       #3
+               lbsr      XBCMD
+               leas      3,s
+               rts
+
+* ?AE ERROR if the SD card's root has the file named at DBUF1.
+XBEX           lda       XBSDH,u
+               pshs      a
+               ldd       #$E2F7              OP_FUJI OPEN_DIRECTORY
+               pshs      d
+               leax      ,s
+               ldy       #3
+               jsr       DWWrite
+               leas      3,s
+               ldx       #XBROOT
+               ldy       #2
+               jsr       DWWrite
+               ldx       #DBUF1+1            The name, as the pattern
+               ldy       #254
+               bsr       XBCMD
+XBEX1          ldx       #XBRDE
+               ldy       #4
+               bsr       XBCMD
+               leas      -64,s
+               leax      ,s
+               ldy       #64
+               bsr       XBRSX
+               lda       ,s
+               cmpa      #$7F                End of the directory
+               beq       XBEX3
+               leax      ,s
+XBEX2          lda       ,x+
+               bne       XBEX2
+               lda       -2,x
+               leas      64,s
+               cmpa      #'/                 Skip directories
+               beq       XBEX1
+               bsr       XBEX4
+               ldb       #33*2
+               jsr       FDOUT
+               fdb       LAC46               ?AE ERROR
+XBEX3          leas      64,s
+XBEX4          ldx       #XBCLD
+               ldy       #2
+               bra       XBCMD
 
 * "#n": B = FujiNet drive, 0-3.
 XBDRV          ldb       #'#
@@ -6885,13 +7016,13 @@ XBCMD          jsr       DWWrite
                lbne      XIOERR
                rts
 
-* Read the Y-byte reply into DBUF0.
-XBRSP          pshs      y
+* Read the Y-byte reply into DBUF0, or at XBRSX into X.
+XBRSP          ldx       #DBUF0
+XBRSX          pshs      y,x
                ldx       #XGRSP
                ldy       #2
                jsr       DWWrite
-               puls      y
-               ldx       #DBUF0
+               puls      x,y
                jsr       DWRead
                lbcs      XIOERR
                lbne      XIOERR
@@ -6899,6 +7030,10 @@ XBRSP          pshs      y
 
 XBSLOT         fcb       $E2,$F2             OP_FUJI READ_DEVICE_SLOTS
 XBHOST         fcb       $E2,$F4             OP_FUJI READ_HOST_SLOTS
+XBRDE          fcb       $E2,$F6,64,0        OP_FUJI READ_DIR_ENTRY, 64 bytes
+XBCLD          fcb       $E2,$F5             OP_FUJI CLOSE_DIRECTORY
+XBROOT         fcc       '/'
+               fcb       0
 
                IFGT      *-$FE00
                error     "Upper 8K past $FDFF: a CoCo 3 shows its vector page at $FE00-$FEFF"
