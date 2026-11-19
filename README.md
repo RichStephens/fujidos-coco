@@ -10,6 +10,7 @@ time and also runs on a CoCo 2.
 | Command | What it does |
 |---|---|
 | `CONFIG` | Puts the FujiNet CONFIG disk back in drive 0 and reboots into CONFIG |
+| `LOBBY` | Puts the FujiNet game lobby disk in drive 0 and reboots into the lobby |
 | `TIME$` | The FujiNet's time as `HH:MM:SS` (24-hour), or `""` if it doesn't answer |
 | `DATE$` | The FujiNet's date as `YYYY-MM-DD`, or `""` if it doesn't answer |
 | `GUID$` | A new random GUID from the FujiNet, 36 lowercase characters, or `""` if it doesn't answer |

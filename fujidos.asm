@@ -5458,12 +5458,19 @@ XCOPYL         ldd       ,x++
                sta       >$FFA4
                rts
 
-* CONFIG: remount the FujiNet CONFIG disk as drive 0 and cold start
-FDCFG          jsr       FDOUT
+* LOBBY and CONFIG: put the FujiNet game lobby or CONFIG disk in drive 0 and
+* cold start.
+FDLOB          lda       #2
+               fcb       $21                 Skip the clra
+FDCFG          clra
+               pshs      a
+               jsr       FDOUT
                fdb       LA5C7               ?SN ERROR if more chars
                jsr       FDOUT
                fdb       DVEC7               Close all files
-               ldx       #FDBOOT
+               ldd       #$E2D6              OP_FUJI SET_BOOT_MODE
+               pshs      d
+               leax      ,s
                ldy       #3
                jsr       DWWrite
                lda       >$FFFC              MSB of NMI vector
@@ -5473,7 +5480,6 @@ FDCFG          jsr       FDOUT
 FDCFG3         clr       <RSTFLG             Force cold start
                jsr       FDOUT
                fdb       $A027               BASIC cold start
-FDBOOT         fcb       $E2,$D6,0           OP_FUJI, SET_BOOT_MODE, CONFIG
 
 TOKEN_LET      equ       $BA
 
@@ -5491,6 +5497,8 @@ FDTAB          fcs       'CONFIG'
                fdb       XHPAR
                fcs       'FPRINT'
                fdb       XFPR
+               fcs       'LOBBY'
+               fdb       FDLOB
                fcb       0
 FDFTAB         fcs       'TIME$'
                fdb       XTIME
