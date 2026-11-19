@@ -5200,7 +5200,7 @@ DTEST          fdb       $0200               Read, drive 0
 
 ATARI          tst       <$6F
                beq       A@
-               blt       C@
+               lblt      FDHPRN
                jmp       FDHOUT              Disk file, or FujiNet file
 A@             cmpa      #$07
                bne       B@
@@ -5373,6 +5373,14 @@ FDHLOF         bsr       FDHK
                fdb       XLOF
 FDHLOC         bsr       FDHK
                fdb       XLOC
+FDHPRN         bsr       FDHK
+               fdb       XPRN
+FDH7           bsr       FDHK
+               fdb       XP7
+FDH8           bsr       FDHK
+               fdb       XP8
+FDH12          bsr       FDHK
+               fdb       XP12
 * Run the upper-8K handler named after the bsr with the caller's registers.
 * It sets the X to leave with and where to go next (XHX and XHGO).
 FDHK           pshs      x
@@ -5477,6 +5485,8 @@ FDTAB          fcs       'CONFIG'
                fdb       XXPAR
                fcs       'HTMLPARSE'
                fdb       XHPAR
+               fcs       'FPRINT'
+               fdb       XFPR
                fcb       0
 FDFTAB         fcs       'TIME$'
                fdb       XTIME
@@ -5649,6 +5659,13 @@ XGRSP          fcb       $E2,$01             OP_FUJI SEND_RESPONSE
 
 XINIT          lda       #1
                sta       NOPERR
+               clr       PRSTAT
+               ldx       #FDH7
+               stx       RVEC7+1
+               ldx       #FDH8
+               stx       RVEC8+1
+               ldx       #FDH12
+               stx       RVEC12+1
                ldx       #DVEC20
                stx       RVEC20+1
                ldx       #FDV23
@@ -5672,6 +5689,7 @@ NLAST          equ       10                  Last character read
 NCHM           equ       11                  HTTP channel mode: 0 body, 3 set headers, 4 POST data
 NASCII         equ       12                  Set if query results are ASCII, ending in a space
 NOPERR         equ       $980                Last network OPEN's error, for NETERR(0); TRKTBL uses only $97E-$97F
+PRSTAT         equ       $981                FPRINT: 0 off, $80 on, $81 on with a job open
 NRXB           equ       FCBCON              128-byte receive buffer
 NTXB           equ       FCBCON+128          128-byte send buffer
 
@@ -6615,6 +6633,85 @@ XUC1           sta       ,u+
 XUCX           jsr       FDOUT
                fdb       LB54C
                rts
+
+* FPRINT ON/OFF: send printer (device -2) output to the FujiNet printer.
+XFPR           cmpa      #TOKEN_ON
+               beq       XFPRON
+               cmpa      #TOKEN_OFF
+               lbne      XSN
+               bsr       XPEND
+               clra
+               fcb       $8C                 Skip the lda
+XFPRON         lda       #$80
+               sta       PRSTAT
+               jmp       <GETNCH
+
+* End the print job, if one is open.
+XPEND          lda       PRSTAT
+               cmpa      #$81
+               bne       XPENDX
+               deca
+               sta       PRSTAT
+               pshs      u,y,x,d
+               lda       #$46                OP_PRINTFLUSH
+               pshs      a
+               leax      ,s
+               ldy       #1
+               jsr       DWWrite
+               leas      1,s
+               puls      d,x,y,u
+XPENDX         rts
+
+* Console out to a device below 0: A = character.
+XPRN           pshs      u,y,x,d
+               ldd       #XVEC3
+               std       XHGO,s
+               lda       <DEVNUM
+               cmpa      #-2
+               bne       XPRNX
+               lda       PRSTAT
+               bpl       XPRNX
+               ora       #1
+               sta       PRSTAT
+               ldb       ,s
+               lda       #$50                OP_PRINT
+               pshs      d
+               leax      ,s
+               ldy       #2
+               jsr       DWWrite
+               puls      d
+               cmpb      #CR                 Keep the column as LA2BF does
+               beq       XPRN1
+               inc       <LPTPOS
+               ldb       <LPTPOS
+               cmpb      <LPTWID
+               blo       XPRN2
+XPRN1          clr       <LPTPOS
+XPRN2          ldd       #FDDROP
+               std       XHGO,s
+XPRNX          puls      d,x,y,u,pc
+
+* Close all files, close one file, and line input: these end the print job.
+XP7            pshs      u,y,x,d
+               ldd       #DVEC7
+               bra       XPCL
+XP8            pshs      u,y,x,d
+               ldd       #DVEC8
+               std       XHGO,s
+               lda       <DEVNUM
+               cmpa      #-2
+               bne       XPCLX
+               bra       XPCL1
+XP12           pshs      u,y,x,d
+               ldd       #FDRTS
+               std       XHGO,s
+               ldd       XHRET,s
+               cmpd      #LAC7C+3            Only at the OK prompt, not INPUT
+               bne       XPCLX
+               bra       XPCL1
+XPCL           std       XHGO,s
+XPCL1          lbsr      XPEND
+XPCLX          puls      d,x,y,u,pc
 
                IFGT      *-$FE00
                error     "Upper 8K past $FDFF: a CoCo 3 shows its vector page at $FE00-$FEFF"

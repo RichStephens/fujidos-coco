@@ -14,10 +14,14 @@ time and also runs on a CoCo 2.
 | `DATE$` | The FujiNet's date as `YYYY-MM-DD`, or `""` if it doesn't answer |
 | `GUID$` | A new random GUID from the FujiNet, 36 lowercase characters, or `""` if it doesn't answer |
 | `UCASE$(s$)` | `s$` with a-z in capitals |
+| `FPRINT ON`, `FPRINT OFF` | Sends printer output (`PRINT #-2`, `LLIST`) to the FujiNet printer, or back to the serial port |
 
 CoCo 3 BASIC leaves almost no free command tokens, so FujiDOS commands are
 plain words. They are reserved like BASIC keywords: `CONFIG=1` is a syntax
 error, not an assignment, and so is `TIME$="12:00:00"`.
+
+Get the printout from the printer page of the FujiNet's web interface. Each
+download starts a new printout.
 
 ## Network files
 
