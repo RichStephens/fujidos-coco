@@ -620,7 +620,7 @@ LC1F1          fdb       DIR                 DIR / CE
                fdb       VERIFY              VERIFY / DA
                fdb       UNLOAD              UNLOAD / DB
                fdb       DSKINI              DSKINI /DC
-               fdb       BACKUP              BACKUP / DD
+               fdb       FDHBK               BACKUP / DD
                fdb       COPY                COPY / DE
                fdb       DSKI                DSKI$ / DF
                fdb       DSKO                DSKO$ / E0
@@ -5381,6 +5381,8 @@ FDH8           bsr       FDHK
                fdb       XP8
 FDH12          bsr       FDHK
                fdb       XP12
+FDHBK          bsr       FDHK
+               fdb       XBKP
 * Run the upper-8K handler named after the bsr with the caller's registers.
 * It sets the X to leave with and where to go next (XHX and XHGO).
 FDHK           pshs      x
@@ -6712,6 +6714,191 @@ XP12           pshs      u,y,x,d
 XPCL           std       XHGO,s
 XPCL1          lbsr      XPEND
 XPCLX          puls      d,x,y,u,pc
+
+* BACKUP #s TO #d: copy the image in FujiNet drive s to the root of the SD
+* card and mount the copy in drive d. Without the #, Disk BASIC's BACKUP.
+XBKP           pshs      u,y,x,d
+               ldx       #LA61F              ?DN ERROR with no drive numbers
+               tsta
+               beq       XBKPGO
+               cmpa      #':
+               beq       XBKPGO
+               ldx       #BACKUP+4           Past its test for no drive numbers
+               cmpa      #'#
+               beq       XBKP1
+XBKPGO         stx       XHGO,s
+               puls      d,x,y,u,pc
+XBKP1          ldx       #FDRTS
+               stx       XHGO,s
+               lbsr      XBDRV
+               pshs      b
+               ldb       #TOKEN_TO
+               jsr       FDOUT
+               fdb       LB26F
+               lbsr      XBDRV
+               pshs      b                   ,s destination, 1,s source
+               jsr       FDOUT
+               fdb       LA5C7               ?SN ERROR if more chars
+               lda       ,s
+               cmpa      1,s
+               lbeq      XFCERR
+               jsr       FDOUT
+               fdb       DVEC7               Close all files
+               ldx       #XBSLOT
+               ldy       #2
+               lbsr      XBCMD
+               ldy       #4*38
+               lbsr      XBRSP
+               ldb       1,s
+               lda       #38
+               mul
+               addd      #DBUF0
+               tfr       d,x
+               ldd       ,x                  Host slot and mode
+               cmpa      #8
+               lbhs      XIOERR              Nothing mounted
+               andb      #3
+               pshs      d
+               ldx       #XBHOST
+               ldy       #2
+               lbsr      XBCMD
+               ldy       #8*32
+               lbsr      XBRSP
+               ldx       #DBUF0
+               clrb
+XBKP2          ldu       ,x
+               cmpu      #$5344              "SD"
+               bne       XBKP3
+               tst       2,x
+               beq       XBKP4
+XBKP3          leax      32,x
+               incb
+               cmpb      #8
+               blo       XBKP2
+               lbra      XIOERR
+XBKP4          pshs      b                   ,s SD host, source host, mode, destination, 4,s source
+               lda       4,s
+               pshs      a
+               ldd       #$E2DA              OP_FUJI GET_DEVICE_FULLPATH
+               pshs      d
+               leax      ,s
+               ldy       #3
+               lbsr      XBCMD
+               leas      3,s
+               ldy       #256
+               lbsr      XBRSP
+               ldx       #DBUF0
+               leau      ,x                  U follows the last /
+XBKP5          lda       ,x+
+               beq       XBKP6
+               cmpa      #'/
+               bne       XBKP5
+               leau      ,x
+               bra       XBKP5
+XBKP6          leax      -1,x
+               cmpx      #DBUF0+253          Room for "|/"
+               lbhi      XFCERR
+               lda       1,s
+               cmpa      ,s
+               bne       XBKP7
+               cmpu      #DBUF0+1            Already in the SD card's root
+               lbls      XFCERR
+XBKP7          pshs      x                   End of the source path
+               ldd       #$7C2F              "|/": the copy goes in the root
+               std       ,x++
+               ldy       #DBUF1              The copy's path, zero filled
+               stb       ,y+
+XBKP8          cmpu      ,s
+               bhs       XBKP9
+               lda       ,u+
+               sta       ,x+
+               sta       ,y+
+               cmpx      #DBUF0+255
+               blo       XBKP8
+               lbra      XFCERR
+XBKP9          clr       ,x
+               leas      2,s
+XBKPA          clr       ,y+
+               cmpy      #DBUF1+256
+               blo       XBKPA
+               ldd       ,s
+               exg       a,b
+               addd      #$0101              COPY_FILE counts hosts from 1
+               pshs      d
+               ldd       #$E2D8              OP_FUJI COPY_FILE
+               pshs      d
+               leax      ,s
+               ldy       #4
+               jsr       DWWrite
+               leas      4,s
+               ldx       #DBUF0
+               ldy       #256
+               bsr       XBCMD
+               lda       2,s
+               pshs      a
+               ldb       1,s
+               lda       4,s
+               pshs      d
+               ldd       #$E2E2              OP_FUJI SET_DEVICE_FULLPATH
+               pshs      d
+               leax      ,s
+               ldy       #5
+               jsr       DWWrite
+               leas      5,s
+               ldx       #DBUF1
+               ldy       #256
+               bsr       XBCMD
+               lda       3,s
+               ldb       2,s
+               pshs      d
+               ldd       #$E2F8              OP_FUJI MOUNT_IMAGE
+               pshs      d
+               leax      ,s
+               ldy       #4
+               bsr       XBCMD
+               leas      9,s
+               puls      d,x,y,u,pc
+
+* "#n": B = FujiNet drive, 0-3.
+XBDRV          ldb       #'#
+               jsr       FDOUT
+               fdb       LB26F
+               jsr       FDOUT
+               fdb       EVALEXPB
+               cmpb      #3
+               lbhi      XFCERR
+               rts
+
+* Send Y bytes at X to the FujiNet: ?IO ERROR if the command fails.
+XBCMD          jsr       DWWrite
+               ldx       #XGCMD+2
+               ldy       #2
+               jsr       DWWrite
+               leas      -1,s
+               leax      ,s
+               ldy       #1
+               jsr       DWRead
+               puls      a
+               lbcs      XIOERR
+               lbne      XIOERR
+               deca                          1 = no error
+               lbne      XIOERR
+               rts
+
+* Read the Y-byte reply into DBUF0.
+XBRSP          pshs      y
+               ldx       #XGRSP
+               ldy       #2
+               jsr       DWWrite
+               puls      y
+               ldx       #DBUF0
+               jsr       DWRead
+               lbcs      XIOERR
+               lbne      XIOERR
+               rts
+
+XBSLOT         fcb       $E2,$F2             OP_FUJI READ_DEVICE_SLOTS
+XBHOST         fcb       $E2,$F4             OP_FUJI READ_HOST_SLOTS
 
                IFGT      *-$FE00
                error     "Upper 8K past $FDFF: a CoCo 3 shows its vector page at $FE00-$FEFF"
