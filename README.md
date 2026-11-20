@@ -18,6 +18,7 @@ time and also runs on a CoCo 2.
 | `FPRINT ON`, `FPRINT OFF` | Sends printer output (`PRINT #-2`, `LLIST`) to the FujiNet printer, or back to the serial port |
 | `BACKUP #s TO #d` | Copies the disk image in FujiNet drive `s` (0-3) to the root of the SD card and mounts the copy in drive `d` |
 | `DSKINI #d,"NAME"` | Creates blank disk image `NAME.DSK` in the root of the SD card and mounts it in FujiNet drive `d` |
+| `QRCODE "text"`, `QRCODE @pos,"text"` | Draws `text` as a QR code on the 32-column screen, centered or with its top left at `PRINT @` position `pos` |
 
 CoCo 3 BASIC leaves almost no free command tokens, so FujiDOS commands are
 plain words. They are reserved like BASIC keywords: `CONFIG=1` is a syntax
@@ -29,6 +30,11 @@ download starts a new printout.
 The `BACKUP #` copy keeps the image's file name. Both commands give
 `?AE ERROR` if the file is already on the card. Without the `#`, `BACKUP` and
 `DSKINI` are Disk BASIC's.
+
+`QRCODE` draws black on buff and adds no border, so `CLS 5` first. The code
+is 21, 25 or 29 characters wide and 11, 13 or 15 rows tall, the smallest that
+holds the text: up to 17, 32 or 53 characters, more if it is all capitals and
+digits. Longer text gives `?LS ERROR`; `WIDTH 40` and `80` give `?HP ERROR`.
 
 ## Network files
 
@@ -87,8 +93,8 @@ unused. Every statement and expression runs through it, so a program that
 overwrites that block crashes BASIC.
 
 `make disk` builds `fdtests.dsk` from `tests/*.bas` (needs `decb` from
-ToolShed): WEATHER, DADJOKE, NETCAT (a small terminal) and NETTEST, a
-self-check against httpbin.org.
+ToolShed): WEATHER, DADJOKE, NETCAT (a small terminal), QRDEMO and NETTEST,
+a self-check against httpbin.org.
 
 ## Credits
 

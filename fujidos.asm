@@ -5499,6 +5499,8 @@ FDTAB          fcs       'CONFIG'
                fdb       XFPR
                fcs       'LOBBY'
                fdb       FDLOB
+               fcs       'QRCODE'
+               fdb       XQD
                fcb       0
 FDFTAB         fcs       'TIME$'
                fdb       XTIME
@@ -7105,6 +7107,168 @@ XBRSX          pshs      y,x
                lbne      XIOERR
                rts
 
+* QRCODE [@pos,]"text": draw text as a QR code on the 32-column screen, at
+* pos (as PRINT @) or centered. A module is half a character cell; the code
+* starts in the lower half of its first row.
+XQD            ldx       #$FFFF              No position
+               cmpa      #'@
+               bne       XQD1
+               jsr       <GETNCH
+               jsr       FDOUT
+               fdb       LB73D               X = position
+               cmpx      #511
+               lbhi      XFCERR
+               pshs      x
+               jsr       FDOUT
+               fdb       SYNCOMMA
+               puls      x
+XQD1           pshs      x
+               jsr       FDOUT
+               fdb       LB156
+               jsr       FDOUT
+               fdb       LB654               X = text, B = length
+               pshs      x,b
+               jsr       FDOUT
+               fdb       LA5C7               ?SN ERROR if more chars
+               lda       >$FFFC
+               cmpa      #$FE                CoCo 3?
+               bne       XQD2
+               tst       <HRWIDTH
+               beq       XQD2
+               ldb       #39*2               ?HP ERROR
+               bra       XQDERR
+XQD2           ldb       ,s
+               lbeq      XFCERR
+               clra
+               pshs      d
+               ldd       #$E2BC              OP_FUJI QRCODE_INPUT
+               pshs      d
+               leax      ,s
+               ldy       #4
+               jsr       DWWrite
+               leas      2,s
+               puls      y
+               ldx       1,s
+               lbsr      XBCMD
+               ldx       #XQDENC
+               ldy       #5
+               lbsr      XBCMD
+               ldx       #XQDLEN
+               ldy       #3
+               lbsr      XBCMD
+               ldy       #4
+               lbsr      XBRSP
+               ldd       DBUF0               The length, high byte first
+               bne       XQDLS
+               lda       DBUF0+2
+               bne       XQDLS
+               ldb       DBUF0+3
+               cmpb      #1+29*4             Larger than 29 modules?
+               bls       XQD3
+XQDLS          ldb       #14*2               ?LS ERROR
+XQDERR         jsr       FDOUT
+               fdb       LAC46
+XQD3           clra
+               pshs      d
+               ldd       #$E2BF              OP_FUJI QRCODE_OUTPUT
+               pshs      d
+               leax      ,s
+               ldy       #4
+               lbsr      XBCMD
+               leas      2,s
+               puls      y
+               lbsr      XBRSP
+               leas      3,s
+               ldb       DBUF0               Modules on a side
+               pshs      b
+               incb
+               lsrb
+               pshs      b                   Character rows
+               ldd       2,s
+               cmpd      #$FFFF
+               bne       XQD4
+               ldb       #16
+               subb      ,s
+               lsrb
+               lda       #32
+               mul
+               pshs      d
+               ldb       #32
+               subb      3,s
+               lsrb
+               clra
+               addd      ,s++
+               std       2,s
+XQD4           ldb       3,s                 ?FC ERROR if it runs off the screen
+               andb      #31
+               addb      1,s
+               cmpb      #32
+               lbhi      XFCERR
+               ldd       2,s
+               lslb
+               rola
+               lslb
+               rola
+               lslb
+               rola
+               adda      ,s
+               cmpa      #16
+               lbhi      XFCERR
+               ldb       1,s
+               addb      #7
+               lsrb
+               lsrb
+               lsrb
+               lda       1,s
+               pshs      d                   First row flag, bytes a row
+               leas      -2,s                Bit mask, columns left
+               ldd       6,s
+               addd      #$400
+               tfr       d,u
+               ldx       #DBUF0+1
+XQDR           tfr       x,y
+               lda       #$80
+               sta       ,s
+               lda       5,s
+               sta       1,s
+XQDC           clrb
+               lda       2,s
+               bne       XQDC0               The top half of the first row is light
+               lda       3,s
+               nega
+               lda       a,y
+               anda      ,s
+               bne       XQDC1
+XQDC0          ldb       #12
+XQDC1          lda       ,y
+               anda      ,s
+               bne       XQDC3
+               orb       #3
+XQDC3          tstb
+               beq       XQDC4
+               orb       #$40                Buff
+XQDC4          orb       #$80
+               stb       ,u+
+               lsr       ,s
+               bne       XQDC5
+               ror       ,s
+               leay      1,y
+XQDC5          dec       1,s
+               bne       XQDC
+               ldb       #32
+               subb      5,s
+               leau      b,u
+               ldb       3,s
+               lslb
+               abx
+               clr       2,s
+               dec       4,s
+               bne       XQDR
+               leas      8,s
+               rts
+
+XQDENC         fcb       $E2,$BD,0,0,0       OP_FUJI QRCODE_ENCODE: smallest version, low ECC
+XQDLEN         fcb       $E2,$BE,2           OP_FUJI QRCODE_LENGTH, as a bitmap
 XBSLOT         fcb       $E2,$F2             OP_FUJI READ_DEVICE_SLOTS
 XBHOST         fcb       $E2,$F4             OP_FUJI READ_HOST_SLOTS
 XBRDE          fcb       $E2,$F6,64,0        OP_FUJI READ_DIR_ENTRY, 64 bytes
