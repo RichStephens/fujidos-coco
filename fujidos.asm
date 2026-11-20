@@ -5501,6 +5501,8 @@ FDTAB          fcs       'CONFIG'
                fdb       FDLOB
                fcs       'QRCODE'
                fdb       XQD
+               fcs       'CPUSPEED'
+               fdb       XSPD
                fcb       0
 FDFTAB         fcs       'TIME$'
                fdb       XTIME
@@ -6715,6 +6717,53 @@ XUC1           sta       ,u+
                bne       XUCL
 XUCX           jsr       FDOUT
                fdb       LB54C
+               rts
+
+* CPUSPEED [HI|LO]: set a CoCo 3's CPU speed, or print it. The speed can't be
+* read back, so count loops in one video field. A CoCo 2 is always LO.
+XSPD           beq       XSPDP
+               ldx       #$FFD9
+               cmpa      #'H
+               bne       XSPD1
+               jsr       <GETNCH
+               cmpa      #'I
+               beq       XSPD2
+XSPDSN         lbra      XSN
+XSPD1          leax      -1,x                $FFD8
+               cmpa      #'L
+               bne       XSPDSN
+               jsr       <GETNCH
+               cmpa      #'O
+               bne       XSPDSN
+XSPD2          lda       >$FFFC              MSB of NMI vector
+               cmpa      #$FE                CoCo 3?
+               bne       XSPD3
+               sta       ,x
+XSPD3          jmp       <GETNCH
+XSPDP          ldy       #'L*256+'O
+               lda       >$FFFC
+               cmpa      #$FE
+               bne       XSPDO
+               lda       >$FF02              Clear the field sync flag
+XSPDW          tst       >$FF03
+               bpl       XSPDW
+               lda       >$FF02
+               ldx       #0
+XSPDM          leax      1,x
+               tst       >$FF03
+               bpl       XSPDM
+               cmpx      #1600               About 1000 loops a field at normal speed
+               blo       XSPDO
+               ldy       #'H*256+'I
+XSPDO          tfr       y,d
+               pshs      b
+               jsr       FDOUT
+               fdb       PUTCHR
+               puls      a
+               jsr       FDOUT
+               fdb       PUTCHR
+               jsr       FDOUT
+               fdb       LB958               Print a CR
                rts
 
 * FPRINT ON/OFF: send printer (device -2) output to the FujiNet printer.

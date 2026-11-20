@@ -19,6 +19,7 @@ time and also runs on a CoCo 2.
 | `BACKUP #s TO #d` | Copies the disk image in FujiNet drive `s` (0-3) to the root of the SD card and mounts the copy in drive `d` |
 | `DSKINI #d,"NAME"` | Creates blank disk image `NAME.DSK` in the root of the SD card and mounts it in FujiNet drive `d` |
 | `QRCODE "text"`, `QRCODE @pos,"text"` | Draws `text` as a QR code on the 32-column screen, centered or with its top left at `PRINT @` position `pos` |
+| `CPUSPEED`, `CPUSPEED HI`, `CPUSPEED LO` | Prints a CoCo 3's CPU speed, `HI` or `LO`, or sets it. DriveWire disk access sets it back to `HI`. A CoCo 2 is always `LO` |
 
 CoCo 3 BASIC leaves almost no free command tokens, so FujiDOS commands are
 plain words. They are reserved like BASIC keywords: `CONFIG=1` is a syntax
