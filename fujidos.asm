@@ -5319,24 +5319,6 @@ DOMORE         ldb       ,x+                 Get a byte
                bne       DOMORE              If not end (0) flag get more
                rts
 
-FDXBLK         equ       $37                 CoCo 3 RAM block BASIC leaves unused
-
-* CoCo 3 BASIC copies only $C000-$DFFF, so copy the upper 8K into block FDXBLK.
-* Runs from both the cart and its RAM copy, which must match here.
-FDINIT         lda       >$FFFC              MSB of NMI vector
-               cmpa      #$FE                CoCo 3?
-               bne       FDINI2
-               pshs      cc
-               orcc      #$50
-               ldb       #$CC                32 column, 16K internal/16K external ROM
-               stb       >$FF90
-               sta       >$FFDE              ROM mode
-               jsr       XCOPY
-               sta       >$FFDF              RAM mode
-               puls      cc
-FDINI2         ldx       #XINIT
-               bra       FDXGO
-
 * Replaces ECB's crunch hook: run direct-mode lines in DVEC20's loop so FDCHK sees them.
 FDV23          ldx       2,s
                cmpx      #LAC9D
@@ -5395,6 +5377,24 @@ FDDRPJ         leas      2,s                 Drop a return address and go to X
                jmp       ,x
 FDDROP         leas      2,s                 Return past the caller
 FDRTS          rts
+
+FDXBLK         equ       $37                 CoCo 3 RAM block BASIC leaves unused
+
+* CoCo 3 BASIC copies only $C000-$DFFF, so copy the upper 8K into block FDXBLK.
+* Runs from both the cart and its RAM copy, which must match here.
+FDINIT         lda       >$FFFC              MSB of NMI vector
+               cmpa      #$FE                CoCo 3?
+               bne       FDINI2
+               pshs      cc
+               orcc      #$50
+               ldb       #$CC                32 column, 16K internal/16K external ROM
+               stb       >$FF90
+               sta       >$FFD8              Normal speed: the cart read fails at double speed
+               sta       >$FFDE              ROM mode
+               jsr       XCOPY
+               sta       >$FFDF              RAM mode
+               puls      cc
+FDINI2         ldx       #XINIT              Falls into FDXGO
 
 * Run upper-8K code at X with interrupts masked.
 FDXGO          pshs      cc
