@@ -5516,6 +5516,8 @@ FDFTAB         fcs       'TIME$'
                fdb       XNETER
                fcs       'UCASE$'
                fdb       XUCASE
+               fcs       'NREAD$'
+               fdb       XNRD
                fcb       0
 
 * Match the word at CHARAD against table U. Found: NE, U at the handler,
@@ -6024,10 +6026,12 @@ XOPNZ          clr       ,y+
                jsr       <GETCCH
                cmpa      #',
                bne       XOPN3
+               pshs      x
                jsr       FDOUT
                fdb       SYNCOMMA
                jsr       FDOUT
                fdb       LB70B               B = line ending
+               puls      x
                cmpb      #3
                lbhi      XFCERR
                stb       1,s
@@ -6611,6 +6615,71 @@ XNETE2         bsr       XFARG1
 XNETE1         leas      4,s
 XNETE3         jsr       FDOUT
                fdb       LB4F3               Return B
+               rts
+
+* NREAD$(f,n): up to n of the bytes file f has ready, as they arrived.
+XNRD           lbsr      XFARG
+               ldb       NMODE,x
+               bitb      #4
+               lbeq      XFMERR
+               pshs      x
+               jsr       FDOUT
+               fdb       LB738               , and B = n
+               pshs      b
+               jsr       FDOUT
+               fdb       LB267               )
+               puls      b
+               jsr       FDOUT
+               fdb       LB50F               X = B bytes of string space
+               puls      u
+               ldb       STRDES
+               pshs      x,b                 Bytes still wanted, and where they go
+               tfr       u,x
+               clr       NLAST,x
+               tstb
+               beq       XNRDD
+               tst       FCBCFL,x            A character Disk BASIC's INPUT put back
+               beq       XNRD1
+               clr       FCBCFL,x
+               lda       FCBCDT,x
+               ldu       1,s
+               sta       ,u+
+               stu       1,s
+               dec       ,s
+XNRD1          tst       ,s
+               beq       XNRDD
+               lbsr      XNFILL
+               tstb
+               beq       XNRDD
+               cmpb      ,s
+               bls       XNRD2
+               ldb       ,s
+XNRD2          pshs      b
+               ldu       2,s
+               lda       NRXI,x
+               leay      NRXB,x
+               leay      a,y
+XNRD3          lda       ,y+
+               sta       ,u+
+               decb
+               bne       XNRD3
+               stu       2,s
+               ldb       NRXI,x
+               addb      ,s
+               stb       NRXI,x
+               ldb       NRXN,x
+               subb      ,s
+               stb       NRXN,x
+               ldb       1,s
+               subb      ,s+
+               stb       ,s
+               bra       XNRD1
+XNRDD          ldb       STRDES
+               subb      ,s
+               stb       STRDES
+               leas      3,s
+               jsr       FDOUT
+               fdb       LB54C
                rts
 
 * UCASE$(s$): s$ with a-z in capitals. Reserves before freeing s$, as LEFT$ does.

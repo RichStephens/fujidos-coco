@@ -60,6 +60,7 @@ accepts CR, LF or CR LF unless it is 0.
 | `HEADER #f,"Name: value"` | Adds an HTTP request header (modes `D`, `R` and `P`) |
 | `JSONPARSE #f`, `XMLPARSE #f`, `HTMLPARSE #f` | Parses the file's data for queries |
 | `JSONQUERY$(f,q$)`, `XMLQUERY$(f,q$)`, `HTMLQUERY$(f,q$)` | The value `q$` selects, at most 255 characters |
+| `NREAD$(f,n)` | Up to `n` (0-255) of the bytes ready to read, unchanged; `""` if none are |
 | `LOF(f)` | Bytes ready to read |
 | `LOC(f)` | -1 while connected, else 0 |
 | `NETERR(f)` | The FujiNet's error code: 1 OK, 136 end of data, 170 not found, 200 connection refused |
@@ -86,7 +87,8 @@ unused. Every statement and expression runs through it, so a program that
 overwrites that block crashes BASIC.
 
 `make disk` builds `fdtests.dsk` from `tests/*.bas` (needs `decb` from
-ToolShed): WEATHER, DADJOKE and NETTEST, a self-check against httpbin.org.
+ToolShed): WEATHER, DADJOKE, NETCAT (a small terminal) and NETTEST, a
+self-check against httpbin.org.
 
 ## Credits
 
