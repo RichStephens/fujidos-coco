@@ -5584,8 +5584,14 @@ XMSKL          tst       ,u+
 * Returns X = LADC6 to let BASIC run the statement, LAF39 for IF's line
 * number, else FDRTS.
 XCHK           cmpa      #TOKEN_IF
-               beq       XIF
-               pshs      d
+               lbeq      XIF
+               cmpa      #TOKEN_LET
+               beq       XCHK0
+               pshs      a
+               lbsr      XLTR
+               puls      a
+               beq       XCHKN
+XCHK0          pshs      d
                ldx       <CHARAD
                pshs      x
                cmpa      #TOKEN_LET
@@ -5611,10 +5617,18 @@ XSN            jsr       FDOUT
 
 * Returns X = DVEC15 to let BASIC evaluate the term, else FDDROP.
 XFUN           ldx       <CHARAD
+XFUN0          leax      1,x
+               lda       ,x
+               cmpa      #$20
+               beq       XFUN0
+               bsr       XLTR
+               bita      #2
+               beq       XFUNQ
+               ldx       <CHARAD
                pshs      x
                jsr       <GETNCH
                ldu       #FDFTAB
-               bsr       XMATCH
+               lbsr      XMATCH
                puls      x
                beq       XFUNN
                jsr       <GETNCH
@@ -5622,7 +5636,7 @@ XFUN           ldx       <CHARAD
                ldx       #FDDROP
                rts
 XFUNN          stx       <CHARAD
-               ldx       #DVEC15
+XFUNQ          ldx       #DVEC15
                rts
 
 * BASIC's IF jumps past FDCHK to run what follows THEN or ELSE, so do IF here.
@@ -5655,6 +5669,18 @@ XIF3           jsr       <GETCCH
                rts
 XIFX           ldx       #FDRTS
                rts
+
+* Z clear if the char in A can start a name: A = 1 in FDTAB, 2 in FDFTAB, 3 both.
+XLTR           suba      #'A
+               cmpa      #'Z-'A
+               bhi       XLTR0
+               ldx       #XLTAB
+               lda       a,x
+               rts
+XLTR0          clra
+               rts
+* A to Z. Keep in step with FDTAB and FDFTAB.
+XLTAB          fcb       0,0,1,2,0,1,2,3,0,3,0,1,0,2,0,0,1,0,0,2,2,0,0,3,0,0
 
 * TIME$ and DATE$ from the FujiNet clock; "" if it doesn't answer.
 XTIME          ldx       #XTFMT
