@@ -5226,98 +5226,15 @@ JMPOUT         jmp       FDHIN               Jump to old code, or read a FujiNet
 KEY            pshs      X,B                 Save registers
                ldx       7,s                 Where are we coming from?
                cmpx      #LA39A+3            The idle loop?
-               beq       INIDLE              Yes, do FlexiKey
+               beq       FLEXUP              Yes, do FlexiKey
                puls      b,x                 No, restore registers...
                bra       JMPOUT              ...and go to old code
-INIDLE         clr       <$70                Flag buffer flushed
-               tst       INTFLG              Been here since last C/R?
-               beq       GETTKN              No, clear flags
-               bmi       TESTWH              Not cassette I/O so continue
-               clr       HLDBFR              Mark first byte as 0
-               clr       INTFLG              Ready for complementing
-GETTKN         com       INTFLG              Set to $FF
-RENTER         clr       HLDPTR              Clear flags
-               clr       INSERT              Clear flags
-               clr       WHLINE              Clear flags
-KYREAD         jsr       >GETKEY             Wait for a key & blink cursor
-               cmpa      #9                  Right arrow?
-               beq       GETCHR              Yes, get a char from buffer
-               cmpa      #$5D                SHIFT-Right arrow?
-               bne       a@                  No, see what it is
-               com       WHLINE              Yes, set "WHOLE LINE" flag
-               bra       GETCHR              Get next char from buffer
-a@             cmpa      #$5F                SHIFT-Up arrow?
-               bne       b@                  No, see what it is
-               com       INSERT              Yes, set insert flag
-TESTWH         tst       WHLINE              Send out entire buffer?
-               beq       KYREAD              No, go get them from keyboard
-GETCHR         clr       INSERT              Reset insert flag
-               ldb       HLDPTR              Get character pointer
-               ldx       #HLDBFR             Point X to hold buffer
-               abx                           ADD	Offset to X
-               lda       ,x                  Get character
-               bne       GOODCH              Not end flag so continue
-               clr       WHLINE              At end so reset entire line flag
-               bra       KYREAD              And get more from keyboard
-GOODCH         inc       HLDPTR              Point to next char
-               bra       EXIT                And return with char
-b@             cmpa      #$5B                SHIFT-Down? (Was SHIFT-@)
-               beq       LINCLS              Yes, goto line close
-               cmpa      #CR                 ENTER Key?
-               beq       ENTER               Yes, goto ENTER
-               cmpa      #8                  Backspace?
-               beq       c@                  Yes, delete last char
-               cmpa      #$0A                Down arrow?
-               bne       d@                  No, see what it is
-               inc       HLDPTR              Bump up hold pointer
-               bra       KYREAD              Go read the keyboard
-c@             tst       INSERT              Is insert on?
-               bne       CONXIT              Yes, so don't increment
-               bsr       DECPNT              No, decrement hold pointer
-               bra       CONXIT              And exit
-DECPNT         tst       HLDPTR              Is pointer at zero?
-               beq       ATZERO              Yes, don't try to decrement
-               dec       HLDPTR              No, decrement it
-ATZERO         rts                           Return
-d@             cmpa      #$15                SHIFT-Backspace?
-               beq       CLRPNT              Yes, reset hold pointer
-               cmpa      #$0C                Clear key?
-               beq       CLRPNT              Yes, reset hold pointer
-               cmpa      #3                  BREAK key?
-               beq       CLRPNT              Yes, reset hold pointer
-               cmpa      #$5C                SHIFT-Clear?
-               bne       CONXIT              No, not special insert
-               jsr       >GETKEY             Special insert, get key
-               bra       CONXIT              And exit with it
-CLRPNT         clr       HLDPTR              Clear hold pointer
-CONXIT         cmpa      #32                 Is it a control character?
-               blo       EXIT                Yes, so just exit
-               tst       INSERT              No, test insert flag
-               bne       EXIT                Insert off so exit
-               inc       HLDPTR              Bump up hold pointer
-EXIT           puls      b,x                 Restore registers
+* The rest of FlexiKey is in the upper 8K, at INIDLE.
+FLEXUP         ldx       #INIDLE
+               jsr       FDXGO
+               puls      b,x                 Restore registers
                leas      2,s                 Purge return
                rts                           Return
-LINCLS         clr       [1,s]               Zero out last byte
-               lda       #95                 ASCII "_" (was "@")
-               jsr       >LCCFD               Print it
-               jsr       LB958               Send a C/R (NEXT LINE)
-               ldb       #1                  Reset BASIC's character count
-               stb       ,s                  Store new count
-               ldx       #BASBFR             Point to BASIC line input buffer
-               stx       1,s                 Store address for BASIC
-               bsr       MOVBLK              Transfer BASIC buffer to hold buffer
-               lbra      RENTER              Go do it all over again!
-ENTER          clr       INTFLG              Flag BASIC buffer changed
-               clr       [1,s]               Set an end (0) flag
-               bsr       MOVBLK              Transfer BASIC buffer to hold buffer
-               bra       EXIT                And exit
-MOVBLK         ldx       #BASBFR             Point to BASIC buffer
-               ldy       #HLDBFR             Point to hold buffer
-DOMORE         ldb       ,x+                 Get a byte
-               stb       ,y+                 Put a byte
-               bne       DOMORE              If not end (0) flag get more
-               rts
 
 * Replaces ECB's crunch hook: run direct-mode lines in DVEC20's loop so FDCHK sees them.
 FDV23          ldx       2,s
@@ -5327,16 +5244,53 @@ FDV23          ldx       2,s
                stx       2,s
 FDV23X         rts
 
-* FujiDOS commands. A = statement's first char, B = its GETNCH flags.
-FDCHK          ldx       #XCHK
-               bsr       FDXGO
+* A CoCo 3's IF comes here for what follows THEN or ELSE: see XINIT.
+FDIFJ          tfr       cc,b
+* FujiDOS commands. A = statement's first char, B = its GETNCH flags. Only
+* IF, LET and a letter that starts a name in FDTAB or FDFTAB go to XCHK.
+FDCHK          tsta
+               bpl       FDCHK1
+FDCIF          cmpa      #TOKEN_IF           XINIT makes this never match on a CoCo 3
+               beq       FDCHK2
+               cmpa      #TOKEN_LET
+               beq       FDCHK2
+FDCHKN         tfr       b,cc
+               jmp       >LADC6
+FDCHK1         cmpa      #'A
+               blo       FDCHKN
+               cmpa      #'Z
+               bhi       FDCHKN
+               ldx       #FDLTAB-'A
+               tst       a,x
+               beq       FDCHKN
+FDCHK2         ldx       #XCHK
+               jsr       FDXGO
                tfr       b,cc
                jmp       ,x
 
-* Expression hook for the FDFTAB functions
-FDV15          ldx       #XFUN
-               bsr       FDXGO
+* Expression hook for the FDFTAB functions. Only a term whose first letter
+* starts a name in FDFTAB goes to XFUN.
+FDV15          ldx       <CHARAD
+FDV15A         leax      1,x
+               lda       ,x
+               cmpa      #$20
+               beq       FDV15A
+               cmpa      #'A
+               blo       FDV15N
+               cmpa      #'Z
+               bhi       FDV15N
+               ldx       #FDLTAB-'A
+               lda       a,x
+               bita      #2
+               bne       FDV15B
+FDV15N         jmp       >DVEC15
+FDV15B         ldx       #XFUN
+               jsr       FDXGO
                jmp       ,x
+
+* A to Z: 1 if a name in FDTAB starts with the letter, 2 for FDFTAB, 3 both.
+* Keep in step with the tables.
+FDLTAB         fcb       0,0,1,2,0,1,2,3,0,3,0,1,0,2,0,0,1,0,0,2,2,0,0,3,0,0
 
 * Disk BASIC's file code calls these for FujiNet files.
 FDHOPN         bsr       FDHK
@@ -5490,6 +5444,100 @@ XCOPYL         ldd       ,x++
                blo       XCOPYL
                rts
 
+* FlexiKey from INIDLE on, run by FLEXUP through FDXGO. On its stack the
+* caller's B is at 5,s and X at 6,s. Returns the key in A.
+INIDLE         clr       <$70                Flag buffer flushed
+               tst       INTFLG              Been here since last C/R?
+               beq       GETTKN              No, clear flags
+               bmi       TESTWH              Not cassette I/O so continue
+               clr       HLDBFR              Mark first byte as 0
+               clr       INTFLG              Ready for complementing
+GETTKN         com       INTFLG              Set to $FF
+RENTER         clr       HLDPTR              Clear flags
+               clr       INSERT              Clear flags
+               clr       WHLINE              Clear flags
+KYREAD         jsr       FDOUT
+               fdb       GETKEY              Wait for a key & blink cursor
+               cmpa      #9                  Right arrow?
+               beq       GETCHR              Yes, get a char from buffer
+               cmpa      #$5D                SHIFT-Right arrow?
+               bne       a@                  No, see what it is
+               com       WHLINE              Yes, set "WHOLE LINE" flag
+               bra       GETCHR              Get next char from buffer
+a@             cmpa      #$5F                SHIFT-Up arrow?
+               bne       b@                  No, see what it is
+               com       INSERT              Yes, set insert flag
+TESTWH         tst       WHLINE              Send out entire buffer?
+               beq       KYREAD              No, go get them from keyboard
+GETCHR         clr       INSERT              Reset insert flag
+               ldb       HLDPTR              Get character pointer
+               ldx       #HLDBFR             Point X to hold buffer
+               abx                           ADD	Offset to X
+               lda       ,x                  Get character
+               bne       GOODCH              Not end flag so continue
+               clr       WHLINE              At end so reset entire line flag
+               bra       KYREAD              And get more from keyboard
+GOODCH         inc       HLDPTR              Point to next char
+               bra       EXIT                And return with char
+b@             cmpa      #$5B                SHIFT-Down? (Was SHIFT-@)
+               beq       LINCLS              Yes, goto line close
+               cmpa      #CR                 ENTER Key?
+               beq       ENTER               Yes, goto ENTER
+               cmpa      #8                  Backspace?
+               beq       c@                  Yes, delete last char
+               cmpa      #$0A                Down arrow?
+               bne       d@                  No, see what it is
+               inc       HLDPTR              Bump up hold pointer
+               bra       KYREAD              Go read the keyboard
+c@             tst       INSERT              Is insert on?
+               bne       CONXIT              Yes, so don't increment
+               bsr       DECPNT              No, decrement hold pointer
+               bra       CONXIT              And exit
+DECPNT         tst       HLDPTR              Is pointer at zero?
+               beq       ATZERO              Yes, don't try to decrement
+               dec       HLDPTR              No, decrement it
+ATZERO         rts                           Return
+d@             cmpa      #$15                SHIFT-Backspace?
+               beq       CLRPNT              Yes, reset hold pointer
+               cmpa      #$0C                Clear key?
+               beq       CLRPNT              Yes, reset hold pointer
+               cmpa      #3                  BREAK key?
+               beq       CLRPNT              Yes, reset hold pointer
+               cmpa      #$5C                SHIFT-Clear?
+               bne       CONXIT              No, not special insert
+               jsr       FDOUT
+               fdb       GETKEY              Special insert, get key
+               bra       CONXIT              And exit with it
+CLRPNT         clr       HLDPTR              Clear hold pointer
+CONXIT         cmpa      #32                 Is it a control character?
+               blo       EXIT                Yes, so just exit
+               tst       INSERT              No, test insert flag
+               bne       EXIT                Insert off so exit
+               inc       HLDPTR              Bump up hold pointer
+EXIT           rts
+LINCLS         clr       [6,s]               Zero out last byte
+               lda       #95                 ASCII "_" (was "@")
+               jsr       FDOUT
+               fdb       LCCFD               Print it
+               jsr       FDOUT
+               fdb       LB958               Send a C/R (NEXT LINE)
+               ldb       #1                  Reset BASIC's character count
+               stb       5,s                 Store new count
+               ldx       #BASBFR             Point to BASIC line input buffer
+               stx       6,s                 Store address for BASIC
+               bsr       MOVBLK              Transfer BASIC buffer to hold buffer
+               lbra      RENTER              Go do it all over again!
+ENTER          clr       INTFLG              Flag BASIC buffer changed
+               clr       [6,s]               Set an end (0) flag
+               bsr       MOVBLK              Transfer BASIC buffer to hold buffer
+               bra       EXIT                And exit
+MOVBLK         ldx       #BASBFR             Point to BASIC buffer
+               ldy       #HLDBFR             Point to hold buffer
+DOMORE         ldb       ,x+                 Get a byte
+               stb       ,y+                 Put a byte
+               bne       DOMORE              If not end (0) flag get more
+               rts
+
 * LOBBY and CONFIG: put the FujiNet game lobby or CONFIG disk in drive 0 and
 * cold start.
 FDLOB          lda       #2
@@ -5581,17 +5629,11 @@ XMSKL          tst       ,u+
                leau      2,u
                bra       XMATCH
 
-* Returns X = LADC6 to let BASIC run the statement, LAF39 for IF's line
-* number, else FDRTS.
+* Returns X = LADC6 to let BASIC run the statement, FDCHK or LAF39 from XIF,
+* else FDRTS.
 XCHK           cmpa      #TOKEN_IF
                lbeq      XIF
-               cmpa      #TOKEN_LET
-               beq       XCHK0
-               pshs      a
-               lbsr      XLTR
-               puls      a
-               beq       XCHKN
-XCHK0          pshs      d
+               pshs      d
                ldx       <CHARAD
                pshs      x
                cmpa      #TOKEN_LET
@@ -5617,14 +5659,6 @@ XSN            jsr       FDOUT
 
 * Returns X = DVEC15 to let BASIC evaluate the term, else FDDROP.
 XFUN           ldx       <CHARAD
-XFUN0          leax      1,x
-               lda       ,x
-               cmpa      #$20
-               beq       XFUN0
-               bsr       XLTR
-               bita      #2
-               beq       XFUNQ
-               ldx       <CHARAD
                pshs      x
                jsr       <GETNCH
                ldu       #FDFTAB
@@ -5636,10 +5670,11 @@ XFUN0          leax      1,x
                ldx       #FDDROP
                rts
 XFUNN          stx       <CHARAD
-XFUNQ          ldx       #DVEC15
+               ldx       #DVEC15
                rts
 
-* BASIC's IF jumps past FDCHK to run what follows THEN or ELSE, so do IF here.
+* A CoCo 2's IF, in ROM, jumps past FDCHK to run what follows THEN or ELSE,
+* so do IF here.
 XIF            jsr       <GETNCH
                jsr       FDOUT
                fdb       LB141               Evaluate the condition
@@ -5664,23 +5699,12 @@ XIF2           jsr       FDOUT
                jsr       <GETNCH
 XIF3           jsr       <GETCCH
                tfr       cc,b
-               lbcc      XCHK
+               ldx       #FDCHK
+               bcc       XIFX1
                ldx       #LAF39              A line number: BASIC's GOTO
-               rts
+XIFX1          rts
 XIFX           ldx       #FDRTS
                rts
-
-* Z clear if the char in A can start a name: A = 1 in FDTAB, 2 in FDFTAB, 3 both.
-XLTR           suba      #'A
-               cmpa      #'Z-'A
-               bhi       XLTR0
-               ldx       #XLTAB
-               lda       a,x
-               rts
-XLTR0          clra
-               rts
-* A to Z. Keep in step with FDTAB and FDFTAB.
-XLTAB          fcb       0,0,1,2,0,1,2,3,0,3,0,1,0,2,0,0,1,0,0,2,2,0,0,3,0,0
 
 * TIME$ and DATE$ from the FujiNet clock; "" if it doesn't answer.
 XTIME          ldx       #XTFMT
@@ -5772,7 +5796,13 @@ XGCMD          fcb       $E2,$BB,$E2,$02     OP_FUJI GENERATE_GUID, OP_FUJI SEND
 XGRSP          fcb       $E2,$01             OP_FUJI SEND_RESPONSE
 
 XINIT          stb       >FDXBLO+1           The block from XCOPY; a CoCo 2 ignores it
-               lda       #1
+               lda       >$FFFC              MSB of NMI vector
+               cmpa      #$FE                CoCo 3?
+               bne       XINIT1
+               ldx       #FDIFJ              BASIC is in RAM: have its IF run
+               stx       >LAF39+7            the statement through FDCHK
+               sta       >FDCIF+1            and leave IF to BASIC
+XINIT1         lda       #1
                sta       NOPERR
                clr       PRSTAT
                ldx       #FDH7
