@@ -5482,6 +5482,10 @@ FDCFG3         clr       <RSTFLG             Force cold start
                fdb       $A027               BASIC cold start
 
 TOKEN_LET      equ       $BA
+TOKEN_GO       equ       $81
+TOKEN_ELSE     equ       $84
+TOKEN_IF       equ       $85
+TOKEN_THEN     equ       $A7
 
 * Words are matched as plain text since no tokens are free.
 * Name (FCS), handler. A name that prefixes another must come after it.
@@ -5545,8 +5549,11 @@ XMSKL          tst       ,u+
                leau      2,u
                bra       XMATCH
 
-* Returns X = LADC6 to let BASIC run the statement, else FDRTS.
-XCHK           pshs      d
+* Returns X = LADC6 to let BASIC run the statement, LAF39 for IF's line
+* number, else FDRTS.
+XCHK           cmpa      #TOKEN_IF
+               beq       XIF
+               pshs      d
                ldx       <CHARAD
                pshs      x
                cmpa      #TOKEN_LET
@@ -5584,6 +5591,37 @@ XFUN           ldx       <CHARAD
                rts
 XFUNN          stx       <CHARAD
                ldx       #DVEC15
+               rts
+
+* BASIC's IF jumps past FDCHK to run what follows THEN or ELSE, so do IF here.
+XIF            jsr       <GETNCH
+               jsr       FDOUT
+               fdb       LB141               Evaluate the condition
+               jsr       <GETCCH
+               cmpa      #TOKEN_GO
+               beq       XIF1
+               ldb       #TOKEN_THEN
+               jsr       FDOUT
+               fdb       LB26F               ?SN ERROR unless THEN is next
+XIF1           lda       <FP0EXP
+               bne       XIF3
+               clr       <IFCTR              False: find the matching ELSE
+XIF2           jsr       FDOUT
+               fdb       DATA
+               tsta
+               beq       XIFX
+               jsr       <GETNCH
+               cmpa      #TOKEN_ELSE
+               bne       XIF2
+               dec       <IFCTR
+               bpl       XIF2
+               jsr       <GETNCH
+XIF3           jsr       <GETCCH
+               tfr       cc,b
+               lbcc      XCHK
+               ldx       #LAF39              A line number: BASIC's GOTO
+               rts
+XIFX           ldx       #FDRTS
                rts
 
 * TIME$ and DATE$ from the FujiNet clock; "" if it doesn't answer.
