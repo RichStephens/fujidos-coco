@@ -5379,8 +5379,9 @@ FDDROP         leas      2,s                 Return past the caller
 FDRTS          rts
 
 FDXBLK         equ       $37                 CoCo 3 RAM block BASIC leaves unused
+FDXBLH         equ       $2F                 The block used instead with 512K or more
 
-* CoCo 3 BASIC copies only $C000-$DFFF, so copy the upper 8K into block FDXBLK.
+* CoCo 3 BASIC copies only $C000-$DFFF, so copy the upper 8K into RAM blocks.
 * Runs from both the cart and its RAM copy, which must match here.
 FDINIT         lda       >$FFFC              MSB of NMI vector
                cmpa      #$FE                CoCo 3?
@@ -5424,7 +5425,7 @@ FDXOUT         pshs      cc,d
                ldb       #$3F
                bra       FDXSET
 FDXIN          pshs      cc,d
-               ldb       #FDXBLK
+FDXBLO         ldb       #FDXBLK             XINIT makes this FDXBLH with 512K
 FDXSET         lda       >$FFFC
                cmpa      #$FE
                bne       FDXSX
@@ -5446,16 +5447,47 @@ ZZLAST         equ       *-1                 Cannot be > $DFFF!
 * Upper 8K. FDCHK and FDV15 run code here through FDXGO; it calls BASIC through FDOUT.
 
 * Runs from the cart in ROM mode. ROM shows only through blocks $3C-$3F, so
-* $E000 stays on $3F and block FDXBLK is written through $8000.
+* $E000 stays on $3F and RAM blocks are written through $8000. Copies to
+* FDXBLK and, with 512K, to FDXBLH. On a 128K machine block $20 is block $30.
+* Returns B = the block to run from.
 XCOPY          lda       #FDXBLK
+               bsr       XCOPYB
+               ldx       #$8000
+               lda       #$30
                sta       >$FFA4
+               ldb       ,x
+               lda       #$20
+               sta       >$FFA4
+               lda       ,x
+               pshs      a
+               coma
+               sta       ,x
+               lda       #$30
+               sta       >$FFA4
+               cmpb      ,x                  Unchanged with 512K
+               pshs      cc
+               lda       #$20
+               sta       >$FFA4
+               lda       1,s
+               sta       ,x
+               lda       #$30
+               sta       >$FFA4
+               stb       ,x
+               ldb       #FDXBLK
+               puls      cc,a
+               bne       XCOPYX
+               lda       #FDXBLH
+               bsr       XCOPYB
+               ldb       #FDXBLH
+XCOPYX         lda       #$3C
+               sta       >$FFA4
+               rts
+XCOPYB         sta       >$FFA4
                ldx       #$E000
 XCOPYL         ldd       ,x++
                std       -$6002,x
                cmpx      #$FE00
                blo       XCOPYL
-               lda       #$3C
-               sta       >$FFA4
                rts
 
 * LOBBY and CONFIG: put the FujiNet game lobby or CONFIG disk in drive 0 and
@@ -5713,7 +5745,8 @@ XGX            leas      37,s
 XGCMD          fcb       $E2,$BB,$E2,$02     OP_FUJI GENERATE_GUID, OP_FUJI SEND_ERROR
 XGRSP          fcb       $E2,$01             OP_FUJI SEND_RESPONSE
 
-XINIT          lda       #1
+XINIT          stb       >FDXBLO+1           The block from XCOPY; a CoCo 2 ignores it
+               lda       #1
                sta       NOPERR
                clr       PRSTAT
                ldx       #FDH7
