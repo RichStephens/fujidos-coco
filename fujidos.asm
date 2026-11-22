@@ -5332,11 +5332,19 @@ FDDRPJ         leas      2,s                 Drop a return address and go to X
 FDDROP         leas      2,s                 Return past the caller
 FDRTS          rts
 
+* Returns X = the cart's first two bytes.
+FDPRB          sta       >$FFDE
+               ldx       >$C000
+               sta       >$FFDF
+               rts
+FDPRBE         equ       *
+
 FDXBLK         equ       $37                 CoCo 3 RAM block BASIC leaves unused
 FDXBLH         equ       $2F                 The block used instead with 512K or more
 
 * CoCo 3 BASIC copies only $C000-$DFFF, so copy the upper 8K into RAM blocks.
-* Runs from both the cart and its RAM copy, which must match here.
+* After a reset into a cartridge image this still runs, from RAM, with the
+* image in the cart: then the blocks are left as they are.
 FDINIT         lda       >$FFFC              MSB of NMI vector
                cmpa      #$FE                CoCo 3?
                bne       FDINI2
@@ -5344,11 +5352,22 @@ FDINIT         lda       >$FFFC              MSB of NMI vector
                orcc      #$50
                ldb       #$CC                32 column, 16K internal/16K external ROM
                stb       >$FF90
-               sta       >$FFD8              Normal speed: the cart read fails at double speed
-               sta       >$FFDE              ROM mode
-               jsr       XCOPY
+               sta       >$FFD8              Normal speed
+               ldx       #FDPRBE
+               ldb       #FDPRBE-FDPRB
+FDINI0         lda       ,-x                 FDPRB to the stack: ROM mode hides this code
+               pshs      a
+               decb
+               bne       FDINI0
+               jsr       ,s
+               leas      FDPRBE-FDPRB,s
+               ldb       >FDXBLO+1           The block already in use
+               cmpx      #$444B              'DK': a DOS ROM in the cart?
+               bne       FDINI1
+               sta       >$FFDE              ROM mode: from here to $FFDF the cart
+               jsr       XCOPY               and the RAM copy must match
                sta       >$FFDF              RAM mode
-               puls      cc
+FDINI1         puls      cc
 FDINI2         ldx       #XINIT              Falls into FDXGO
 
 * Run upper-8K code at X with interrupts masked.
