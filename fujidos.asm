@@ -5237,60 +5237,66 @@ FLEXUP         ldx       #INIDLE
                rts                           Return
 
 * Replaces ECB's crunch hook: run direct-mode lines in DVEC20's loop so FDCHK sees them.
-FDV23          ldx       2,s
-               cmpx      #LAC9D
-               bne       FDV23X
-               ldx       #LC8F3
-               stx       2,s
-FDV23X         rts
+FDV23          ldx       #XV23
+               jmp       FDXGO
 
-* A CoCo 3's IF comes here for what follows THEN or ELSE: see XINIT.
+* A CoCo 3's IF comes here for what follows THEN or ELSE: see FDINIT.
 FDIFJ          tfr       cc,b
 * FujiDOS commands. A = statement's first char, B = its GETNCH flags. Only
-* IF, LET and a letter that starts a name in FDTAB or FDFTAB go to XCHK.
+* IF, LET and what FDL2 passes go to XCHK.
 FDCHK          tsta
-               bpl       FDCHK1
-FDCIF          cmpa      #TOKEN_IF           XINIT makes this never match on a CoCo 3
+               bmi       FDCIF
+               ldx       <CHARAD
+               bsr       FDL2
                beq       FDCHK2
-               cmpa      #TOKEN_LET
-               beq       FDCHK2
+               lda       ,x
 FDCHKN         tfr       b,cc
                jmp       >LADC6
-FDCHK1         cmpa      #'A
-               blo       FDCHKN
-               cmpa      #'Z
-               bhi       FDCHKN
-               ldx       #FDLTAB-'A
-               tst       a,x
-               beq       FDCHKN
+FDCIF          cmpa      #TOKEN_IF           FDINIT makes this never match on a CoCo 3
+               beq       FDCHK2
+               cmpa      #TOKEN_LET
+               bne       FDCHKN
 FDCHK2         ldx       #XCHK
                jsr       FDXGO
                tfr       b,cc
                jmp       ,x
 
-* Expression hook for the FDFTAB functions. Only a term whose first letter
-* starts a name in FDFTAB goes to XFUN.
+* Expression hook for the FDFTAB functions. Only a term FDL2 passes goes
+* to XFUN.
 FDV15          ldx       <CHARAD
 FDV15A         leax      1,x
                lda       ,x
                cmpa      #$20
                beq       FDV15A
-               cmpa      #'A
-               blo       FDV15N
-               cmpa      #'Z
-               bhi       FDV15N
-               ldx       #FDLTAB-'A
-               lda       a,x
-               bita      #2
-               bne       FDV15B
-FDV15N         jmp       >DVEC15
+               bsr       FDL2
+               beq       FDV15B
+               jmp       >DVEC15
 FDV15B         ldx       #XFUN
                jsr       FDXGO
                jmp       ,x
 
-* A to Z: 1 if a name in FDTAB starts with the letter, 2 for FDFTAB, 3 both.
-* Keep in step with the tables.
-FDLTAB         fcb       0,0,1,2,0,1,2,3,0,3,0,1,0,2,0,0,1,0,0,2,2,0,0,3,0,0
+* Can the word at X, first char A, be a name in FDTAB or FDFTAB? Z set if so,
+* going by its first two letters. Changes A.
+FDL2           cmpa      #'A
+               blo       FDL2X
+               cmpa      #'Z
+               bhi       FDL2X
+               pshs      x
+               ldx       #FDLTAB-'A
+               lda       a,x
+               puls      x
+               bmi       FDL2A
+               cmpa      1,x                 0 matches only the end of the line
+FDL2X          rts
+FDL2A          lda       1,x
+               anda      #$E0
+               cmpa      #$40
+               rts
+
+* A to Z: the second letter of the names in FDTAB and FDFTAB that start with
+* the letter, $FF for any letter, 0 if there are none. Keep in step with them.
+FDLTAB         fcb       0,0,$FF,'A,0,'P,'U,$FF,0,'S,0,'O,0
+               fcb       $FF,0,0,'R,0,0,'I,'C,0,0,'M,0,0
 
 * Disk BASIC's file code calls these for FujiNet files.
 FDHOPN         bsr       FDHK
@@ -5339,12 +5345,13 @@ FDPRB          sta       >$FFDE
                rts
 FDPRBE         equ       *
 
-FDXBLK         equ       $37                 CoCo 3 RAM block BASIC leaves unused
-FDXBLH         equ       $2F                 The block used instead with 512K or more
+LB6A8          equ       $B6A8               LDB ,X / RTS
+LB75B          equ       $B75B               STB ,X / RTS
+FDXBLH         equ       $2F                 RAM block for the upper 8K with 512K or more
 
-* CoCo 3 BASIC copies only $C000-$DFFF, so copy the upper 8K into RAM blocks.
+* CoCo 3 BASIC copies only $C000-$DFFF: with 512K, copy the upper 8K to RAM.
 * After a reset into a cartridge image this still runs, from RAM, with the
-* image in the cart: then the blocks are left as they are.
+* image in the cart: then it does nothing.
 FDINIT         lda       >$FFFC              MSB of NMI vector
                cmpa      #$FE                CoCo 3?
                bne       FDINI2
@@ -5361,13 +5368,17 @@ FDINI0         lda       ,-x                 FDPRB to the stack: ROM mode hides 
                bne       FDINI0
                jsr       ,s
                leas      FDPRBE-FDPRB,s
-               ldb       >FDXBLO+1           The block already in use
                cmpx      #$444B              'DK': a DOS ROM in the cart?
-               bne       FDINI1
-               sta       >$FFDE              ROM mode: from here to $FFDF the cart
+               beq       FDINI1
+               puls      cc,pc
+FDINI1         sta       >$FFDE              ROM mode: from here to $FFDF the cart
                jsr       XCOPY               and the RAM copy must match
                sta       >$FFDF              RAM mode
-FDINI1         puls      cc
+               stb       >FDXBLO+1
+               ldx       #FDIFJ              BASIC is in RAM: have its IF run
+               stx       >LAF39+7            the statement through FDCHK
+               sta       >FDCIF+1            and leave IF to BASIC: XCOPY's A is no token
+               puls      cc
 FDINI2         ldx       #XINIT              Falls into FDXGO
 
 * Run upper-8K code at X with interrupts masked.
@@ -5394,16 +5405,45 @@ FDOUT          pshs      d,x
                orcc      #$50
                bra       FDXIN
 
+* With 512K the upper 8K is RAM block FDXBLH. With less a CoCo 3 runs it
+* from the cart in ROM mode, where this code is the cart's copy and FDXBLO
+* reads 0 too. The cart can't be run at double speed: FDXIN times a scan
+* line until it has seen double speed, and FDXOUT sets the speed back. XSPD
+* makes FDXIN look again.
 FDXOUT         pshs      cc,d
                ldb       #$3F
                bra       FDXSET
 FDXIN          pshs      cc,d
-FDXBLO         ldb       #FDXBLK             XINIT makes this FDXBLH with 512K
+FDXBLO         ldb       #0                  FDINIT makes this FDXBLH with 512K
 FDXSET         lda       >$FFFC
                cmpa      #$FE
                bne       FDXSX
+               tst       >FDXBLO+1
+               beq       FDXROM
                stb       >$FFA7              MMU task 0, $E000-$FFFF
 FDXSX          puls      cc,d,pc
+FDXROM         tstb
+               bne       FDXRAM
+               ldb       >FDXSPD+2
+               lsrb
+               bcs       FDXSLO
+               lda       >$FF00              Clear the HSYNC flag
+FDXW1          tst       >$FF01
+               bpl       FDXW1
+               lda       >$FF00
+FDXW2          incb
+               tst       >$FF01
+               bpl       FDXW2
+               cmpb      #$D8/2+7            About 5 passes at normal speed, 10 at double
+               ldb       #$D9
+               sbcb      #0
+               stb       >FDXSPD+2
+FDXSLO         sta       >$FFD8
+               sta       >$FFDE
+               puls      cc,d,pc
+FDXRAM         sta       >$FFDF
+FDXSPD         sta       >$FFD8              FDXIN makes this $FFD9 for double speed
+               puls      cc,d,pc
 
  IFNE MEGAMINIMPI
  use dwinit.asm
@@ -5420,12 +5460,10 @@ ZZLAST         equ       *-1                 Cannot be > $DFFF!
 * Upper 8K. FDCHK and FDV15 run code here through FDXGO; it calls BASIC through FDOUT.
 
 * Runs from the cart in ROM mode. ROM shows only through blocks $3C-$3F, so
-* $E000 stays on $3F and RAM blocks are written through $8000. Copies to
-* FDXBLK and, with 512K, to FDXBLH. On a 128K machine block $20 is block $30.
-* Returns B = the block to run from.
-XCOPY          lda       #FDXBLK
-               bsr       XCOPYB
-               ldx       #$8000
+* $E000 stays on $3F and RAM blocks are written through $8000. With 512K,
+* copies to FDXBLH. On a 128K machine block $20 is block $30.
+* Returns B = the block to run from, 0 for none.
+XCOPY          ldx       #$8000
                lda       #$30
                sta       >$FFA4
                ldb       ,x
@@ -5446,7 +5484,7 @@ XCOPY          lda       #FDXBLK
                lda       #$30
                sta       >$FFA4
                stb       ,x
-               ldb       #FDXBLK
+               clrb
                puls      cc,a
                bne       XCOPYX
                lda       #FDXBLH
@@ -5462,6 +5500,14 @@ XCOPYL         ldd       ,x++
                cmpx      #$FE00
                blo       XCOPYL
                rts
+
+* FDV23, run through FDXGO: the hook's caller is at 5,s.
+XV23           ldx       5,s
+               cmpx      #LAC9D
+               bne       XV23X
+               ldx       #LC8F3
+               stx       5,s
+XV23X          rts
 
 * FlexiKey from INIDLE on, run by FLEXUP through FDXGO. On its stack the
 * caller's B is at 5,s and X at 6,s. Returns the key in A.
@@ -5814,14 +5860,7 @@ XGX            leas      37,s
 XGCMD          fcb       $E2,$BB,$E2,$02     OP_FUJI GENERATE_GUID, OP_FUJI SEND_ERROR
 XGRSP          fcb       $E2,$01             OP_FUJI SEND_RESPONSE
 
-XINIT          stb       >FDXBLO+1           The block from XCOPY; a CoCo 2 ignores it
-               lda       >$FFFC              MSB of NMI vector
-               cmpa      #$FE                CoCo 3?
-               bne       XINIT1
-               ldx       #FDIFJ              BASIC is in RAM: have its IF run
-               stx       >LAF39+7            the statement through FDCHK
-               sta       >FDCIF+1            and leave IF to BASIC
-XINIT1         lda       #1
+XINIT          lda       #1
                sta       NOPERR
                clr       PRSTAT
                ldx       #FDH7
@@ -6866,7 +6905,8 @@ XUCX           jsr       FDOUT
                rts
 
 * CPUSPEED [HI|LO]: set a CoCo 3's CPU speed, or print it. The speed can't be
-* read back, so count loops in one video field. A CoCo 2 is always LO.
+* read back, so count loops in one video field; run from the cart, this is
+* at normal speed and FDXSPD has the answer. A CoCo 2 is always LO.
 XSPD           beq       XSPDP
                ldx       #$FFD9
                cmpa      #'H
@@ -6884,13 +6924,32 @@ XSPD1          leax      -1,x                $FFD8
 XSPD2          lda       >$FFFC              MSB of NMI vector
                cmpa      #$FE                CoCo 3?
                bne       XSPD3
-               sta       ,x
+               pshs      x
+               ldb       #$DF                Have FDXOUT leave the speed alone,
+               bsr       XSPDC
+               ldx       ,s
+               jsr       FDOUT               set it,
+               fdb       LB75B
+               puls      d                   and have FDXSPD match: B = $D8 or $D9
+               bsr       XSPDC
 XSPD3          jmp       <GETNCH
+XSPDC          ldx       #FDXSPD+2
+               jsr       FDOUT
+               fdb       LB75B
+               rts
 XSPDP          ldy       #'L*256+'O
                lda       >$FFFC
                cmpa      #$FE
                bne       XSPDO
-               lda       >$FF02              Clear the field sync flag
+               tst       >FDXBLO+1
+               bne       XSPDF
+               ldx       #FDXSPD+2
+               jsr       FDOUT
+               fdb       LB6A8
+               lsrb
+               bcs       XSPDH
+               bra       XSPDO
+XSPDF          lda       >$FF02              Clear the field sync flag
 XSPDW          tst       >$FF03
                bpl       XSPDW
                lda       >$FF02
@@ -6900,7 +6959,7 @@ XSPDM          leax      1,x
                bpl       XSPDM
                cmpx      #1600               About 1000 loops a field at normal speed
                blo       XSPDO
-               ldy       #'H*256+'I
+XSPDH          ldy       #'H*256+'I
 XSPDO          tfr       y,d
                pshs      b
                jsr       FDOUT

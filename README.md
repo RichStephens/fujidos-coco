@@ -89,10 +89,10 @@ make
 ```
 
 This produces `fujidos.rom`, a 16K image for $C000-$FEFF; the last 256 bytes
-are unused. A CoCo 3 keeps the upper 8K in a RAM block: $2F with 512K or
-more, else $37, which BASIC leaves unused. FujiDOS commands, line editing
-and file I/O run through it, so a program that overwrites that block crashes
-BASIC.
+are unused. A CoCo 3 with 512K or more keeps the upper 8K in RAM block $2F.
+FujiDOS commands, line editing and file I/O run through it, so a program
+that overwrites that block crashes BASIC. With less memory a CoCo 3 runs the
+upper 8K from the cartridge, at normal speed.
 
 `make disk` builds `fdtests.dsk` from `tests/*.bas` (needs `decb` from
 ToolShed): WEATHER, DADJOKE, NETCAT (a small terminal), QRDEMO and NETTEST,
