@@ -5243,9 +5243,17 @@ FDV23          ldx       #XV23
 * A CoCo 3's IF comes here for what follows THEN or ELSE: see FDINIT.
 FDIFJ          tfr       cc,b
 * FujiDOS commands. A = statement's first char, B = its GETNCH flags. Only
-* IF, LET and what FDL2 passes go to XCHK.
+* IF, LET and a word FDLTAB and FDL2 pass go to XCHK.
 FDCHK          tsta
                bmi       FDCIF
+               cmpa      #'A
+               blo       FDCHKN
+               cmpa      #'Z
+               bhi       FDCHKN
+               ldx       #FDLTAB-'A
+               tst       a,x
+               beq       FDCHKN
+               lda       a,x
                ldx       <CHARAD
                bsr       FDL2
                beq       FDCHK2
@@ -5261,33 +5269,35 @@ FDCHK2         ldx       #XCHK
                tfr       b,cc
                jmp       ,x
 
-* Expression hook for the FDFTAB functions. Only a term FDL2 passes goes
-* to XFUN.
+* Expression hook for the FDFTAB functions. Only a term FDLTAB and FDL2
+* pass goes to XFUN.
 FDV15          ldx       <CHARAD
 FDV15A         leax      1,x
                lda       ,x
                cmpa      #$20
                beq       FDV15A
-               bsr       FDL2
-               beq       FDV15B
-               jmp       >DVEC15
-FDV15B         ldx       #XFUN
-               jsr       FDXGO
-               jmp       ,x
-
-* Can the word at X, first char A, be a name in FDTAB or FDFTAB? Z set if so,
-* going by its first two letters. Changes A.
-FDL2           cmpa      #'A
-               blo       FDL2X
+               cmpa      #'A
+               blo       FDV15N
                cmpa      #'Z
-               bhi       FDL2X
+               bhi       FDV15N
                pshs      x
                ldx       #FDLTAB-'A
                lda       a,x
                puls      x
+               beq       FDV15N
+               bsr       FDL2
+               beq       FDV15B
+FDV15N         jmp       >DVEC15
+FDV15B         ldx       #XFUN
+               jsr       FDXGO
+               jmp       ,x
+
+* Can the word at X be a name in FDTAB or FDFTAB? A = FDLTAB's byte for its
+* first letter, not 0. Z set if its second letter fits. Changes A.
+FDL2           tsta
                bmi       FDL2A
-               cmpa      1,x                 0 matches only the end of the line
-FDL2X          rts
+               cmpa      1,x
+               rts
 FDL2A          lda       1,x
                anda      #$E0
                cmpa      #$40
@@ -5300,37 +5310,23 @@ FDLTAB         fcb       0,0,$FF,'A,0,'P,'U,$FF,0,'S,0,'O,0
 
 * Disk BASIC's file code calls these for FujiNet files.
 FDHOPN         bsr       FDHK
-               fdb       XOPEN
 FDHOUT         bsr       FDHK
-               fdb       XOUT
 FDHIN          bsr       FDHK
-               fdb       XIN
 FDHTYP         bsr       FDHK
-               fdb       XTYP
 FDHEOF         bsr       FDHK
-               fdb       XEOF
 FDHCLS         bsr       FDHK
-               fdb       XCLS
 FDHLOF         bsr       FDHK
-               fdb       XLOF
 FDHLOC         bsr       FDHK
-               fdb       XLOC
 FDHPRN         bsr       FDHK
-               fdb       XPRN
 FDH7           bsr       FDHK
-               fdb       XP7
 FDH8           bsr       FDHK
-               fdb       XP8
 FDH12          bsr       FDHK
-               fdb       XP12
 FDHBK          bsr       FDHK
-               fdb       XBKP
 FDHDI          bsr       FDHK
-               fdb       XDSK
-* Run the upper-8K handler named after the bsr with the caller's registers.
+* Run the stub's upper-8K handler, from XHTAB, with the caller's registers.
 * It sets the X to leave with and where to go next (XHX and XHGO).
 FDHK           pshs      x
-               ldx       [2,s]
+               ldx       #XHDISP
                bsr       FDXGO
                puls      x,pc
 FDDRPJ         leas      2,s                 Drop a return address and go to X
@@ -5500,6 +5496,25 @@ XCOPYL         ldd       ,x++
                cmpx      #$FE00
                blo       XCOPYL
                rts
+
+* FDHK's handlers, in the order of its stubs. The stub's return is at 7,s.
+XHDISP         ldx       7,s
+               jmp       [XHTAB-FDHOPN-2,x]
+XHTAB
+               fdb       XOPEN
+               fdb       XOUT
+               fdb       XIN
+               fdb       XTYP
+               fdb       XEOF
+               fdb       XCLS
+               fdb       XLOF
+               fdb       XLOC
+               fdb       XPRN
+               fdb       XP7
+               fdb       XP8
+               fdb       XP12
+               fdb       XBKP
+               fdb       XDSK
 
 * FDV23, run through FDXGO: the hook's caller is at 5,s.
 XV23           ldx       5,s
