@@ -621,7 +621,7 @@ LC1F1          fdb       DIR                 DIR / CE
                fdb       UNLOAD              UNLOAD / DB
                fdb       FDHDI               DSKINI /DC
                fdb       FDHBK               BACKUP / DD
-               fdb       COPY                COPY / DE
+               fdb       FDHCP               COPY / DE
                fdb       DSKI                DSKI$ / DF
                fdb       DSKO                DSKO$ / E0
                fdb       DOS                 DOS / E1
@@ -1619,9 +1619,9 @@ LC99D          com       $02,S               TOGGLE DRIVE FLAG
                beq       LC978               'BAD FILENAME' ERROR IF DRIVE NUMBER DEFINED TWICE
 
 **       clr     <DCDRV
-               nop       
-               nop       
-               lbsr      NUMCAL
+               jsr       >FDHNM
+               nop
+               nop
                lda       <DCDRV
                cmpa      >MAXDRV
                lbhi      LA61F
@@ -2958,8 +2958,8 @@ LD3A0          lda       ,-X                 * GET A CHARACTER FROM FILENAME.
                pshs      A                   = IT ONTO THE STACK
                jmp       ,Y                  PSEUDO - RETURN TO CALLING ROUTINE
 * PULL FILENAME.EXT AND DRIVE NUMBER FROM (X) TO RAM
-LD3AD          lda       ,X+                 * GET DRIVE NUMBER AND SAVE
-               sta       DCDRV               * IT IN DSKCON VARIABLE
+LD3AD          jmp       >FDHCD
+               nop
 LD3B1          ldb       #11                 11 BYTES IN FILENAME AND EXTENSION
                ldu       #DNAMBF             POINT U TO DISK NAME BUFFER
                jmp       >LA59A              MOVE FILENANE.EXT FROM (X) TO DNAMBF
@@ -5308,7 +5308,7 @@ FDL2A          lda       1,x
 FDLTAB         fcb       0,0,$FF,'A,0,'P,'U,$FF,0,'S,0,'O,0
                fcb       $FF,0,0,'R,0,0,'I,'C,0,0,'M,0,0
 
-* Disk BASIC's file code calls these for FujiNet files.
+* Disk BASIC's code and BASIC's RAM hooks come here.
 FDHOPN         bsr       FDHK
 FDHOUT         bsr       FDHK
 FDHIN          bsr       FDHK
@@ -5323,6 +5323,10 @@ FDH8           bsr       FDHK
 FDH12          bsr       FDHK
 FDHBK          bsr       FDHK
 FDHDI          bsr       FDHK
+FDHCP          bsr       FDHK
+FDHCD          bsr       FDHK
+FDHNM          bsr       FDHK
+FDH17          bsr       FDHK
 * Run the stub's upper-8K handler, from XHTAB, with the caller's registers.
 * It sets the X to leave with and where to go next (XHX and XHGO).
 FDHK           pshs      x
@@ -5515,6 +5519,10 @@ XHTAB
                fdb       XP12
                fdb       XBKP
                fdb       XDSK
+               fdb       XCPY
+               fdb       XCPD
+               fdb       XNUM
+               fdb       X17
 
 * FDV23, run through FDXGO: the hook's caller is at 5,s.
 XV23           ldx       5,s
@@ -5878,6 +5886,9 @@ XGRSP          fcb       $E2,$01             OP_FUJI SEND_RESPONSE
 XINIT          lda       #1
                sta       NOPERR
                clr       PRSTAT
+               clr       CPFLG
+               ldx       #FDH17
+               stx       RVEC17+1
                ldx       #FDH7
                stx       RVEC7+1
                ldx       #FDH8
@@ -5908,6 +5919,8 @@ NCHM           equ       11                  HTTP channel mode: 0 body, 3 set he
 NASCII         equ       12                  Set if query results are ASCII, ending in a space
 NOPERR         equ       $980                Last network OPEN's error, for NETERR(0); TRKTBL uses only $97E-$97F
 PRSTAT         equ       $981                FPRINT: 0 off, $80 on, $81 on with a job open
+CPFLG          equ       NHEADS              COPY: 0 not running, $80 running, $81 a name has :#n
+CPOLD          equ       NSECTS              IDNUM before COPY (only IDE uses NHEADS and NSECTS)
 NRXB           equ       FCBCON              128-byte receive buffer
 NTXB           equ       FCBCON+128          128-byte send buffer
 
@@ -7055,6 +7068,7 @@ XP8            pshs      u,y,x,d
                bne       XPCLX
                bra       XPCL1
 XP12           pshs      u,y,x,d
+               lbsr      XCPRS
                ldd       #FDRTS
                std       XHGO,s
                ldd       XHRET,s
@@ -7064,6 +7078,84 @@ XP12           pshs      u,y,x,d
 XPCL           std       XHGO,s
 XPCL1          lbsr      XPEND
 XPCLX          puls      d,x,y,u,pc
+
+* COPY: a name ending :#n is on drive 0 of FujiNet drive n (0-3). Its drive
+* byte in COPY's stacked names is $FC+n.
+XCPY           pshs      u,y,x,d
+               ldd       #FDRTS
+               std       XHGO,s
+               bsr       XCPRS
+               lda       IDNUM
+               sta       CPOLD
+               lda       #$80
+               sta       CPFLG
+               jsr       FDOUT
+               fdb       COPY
+               bsr       XCPRS
+               puls      d,x,y,u,pc
+
+* Put IDNUM back after COPY. Also run on an error and at the OK prompt.
+XCPRS          tst       CPFLG
+               beq       XCPRSX
+               lda       CPOLD
+               sta       IDNUM
+               clr       CPFLG
+XCPRSX         rts
+
+* In place of LD3AD's first lines: set the drives for the name at X.
+XCPD           pshs      u,y,x,d
+               ldx       XHX,s
+               lda       ,x+
+               stx       XHX,s
+               ldb       CPFLG
+               lsrb
+               ldb       CPOLD
+               bcc       XCPD1
+               cmpa      #$FC
+               blo       XCPD1
+               tfr       a,b
+               andb      #3
+               clra
+XCPD1          sta       <DCDRV
+               stb       IDNUM
+               ldd       #LD3B1
+               std       XHGO,s
+               puls      d,x,y,u,pc
+
+* A file name's drive number: U = its characters, B = how many, plus 1.
+XNUM           pshs      u,y,x,d
+               ldx       #NUMCAL
+               stx       XHGO,s
+               cmpb      #3
+               blo       XNUMX
+               lda       ,u
+               cmpa      #'#
+               bne       XNUMX
+               tst       CPFLG
+               beq       XNUMX
+               leau      1,u
+               decb
+               jsr       FDOUT
+               fdb       NUMCAL
+               lda       <DCDRV
+               cmpa      #3
+               lbhi      XFCERR
+               ora       #$FC
+               sta       <DCDRV
+               lda       #$81
+               sta       CPFLG
+               stb       1,s
+               stu       6,s
+               ldx       #FDDROP             Skip the MAXDRV test
+               stx       XHGO,s
+XNUMX          puls      d,x,y,u,pc
+
+* BASIC's error hook.
+X17            pshs      u,y,x,d
+               ldd       #DVEC17
+               std       XHGO,s
+               bsr       XCPRS
+               puls      d,x,y,u,pc
 
 * BACKUP #s TO #d: copy the image in FujiNet drive s to the root of the SD
 * card and mount the copy in drive d.
