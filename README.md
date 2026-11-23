@@ -18,7 +18,7 @@ time and also runs on a CoCo 2.
 | `FPRINT ON`, `FPRINT OFF` | Sends printer output (`PRINT #-2`, `LLIST`) to the FujiNet printer, or back to the serial port |
 | `BACKUP #s TO #d` | Copies the disk image in FujiNet drive `s` (0-3) to the root of the SD card and mounts the copy in drive `d` |
 | `DSKINI #d,"NAME"` | Creates blank disk image `NAME.DSK` in the root of the SD card and mounts it in FujiNet drive `d` |
-| `COPY "NAME:#s" TO "NAME:#d"` | Copies a file from the disk in FujiNet drive `s` (0-3) to the disk in drive `d` |
+| `COPY "NAME:#s" TO "NAME:#d"`, `COPY "NAME:#s" TO #d` | Copies a file from the disk in FujiNet drive `s` (0-3) to the disk in drive `d` |
 | `QRCODE "text"`, `QRCODE @pos,"text"` | Draws `text` as a QR code on the 32-column screen, centered or with its top left at `PRINT @` position `pos` |
 | `CPUSPEED`, `CPUSPEED HI`, `CPUSPEED LO` | Prints a CoCo 3's CPU speed, `HI` or `LO`, or sets it. DriveWire disk access sets it back to `HI`. A CoCo 2 is always `LO` |
 
@@ -33,8 +33,9 @@ The `BACKUP #` copy keeps the image's file name. Both commands give
 `?AE ERROR` if the file is already on the card. Without the `#`, `BACKUP` and
 `DSKINI` are Disk BASIC's.
 
-In `COPY`, `:#n` is the first disk of the image in FujiNet drive `n`. A name
-without it is on the current drive, as before.
+In `COPY`, `:#n` is the first disk of the image in FujiNet drive `n`, and
+`TO #n` copies there under the same name. A name without `:#n` is on the
+current drive, as before.
 
 `QRCODE` draws black on buff and adds no border, so `CLS 5` first. The code
 is 21, 25 or 29 characters wide and 11, 13 or 15 rows tall, the smallest that

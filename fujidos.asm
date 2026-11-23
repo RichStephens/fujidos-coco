@@ -2983,7 +2983,7 @@ COPY           jsr       >LC935              * GET SOURCE FILENAME.EXT & DRIVE N
                com       ,S                  SET SOC FLAG TO $FF (NO SINGLE DISK COPY)
                ldb       #TOKEN_TO
                jsr       >LB26F              SYNTAX CHECK FOR 'TO'
-               jsr       >COPtst
+               jsr       >FDHCT
 *	JSR	>LC935	GET DESTINATION FILENAME.EXT AND DRIVE NUMBER
 LD3CE          bsr       LD399               SAVE DESTINATION FILENAME.EXT & DRIVE NUMBER ON STACK
                jsr       >LA5C7              SYNTAX ERROR IF MORE CHARACTERS ON LINE
@@ -5327,6 +5327,7 @@ FDHCP          bsr       FDHK
 FDHCD          bsr       FDHK
 FDHNM          bsr       FDHK
 FDH17          bsr       FDHK
+FDHCT          bsr       FDHK
 * Run the stub's upper-8K handler, from XHTAB, with the caller's registers.
 * It sets the X to leave with and where to go next (XHX and XHGO).
 FDHK           pshs      x
@@ -5523,6 +5524,7 @@ XHTAB
                fdb       XCPD
                fdb       XNUM
                fdb       X17
+               fdb       XCT
 
 * FDV23, run through FDXGO: the hook's caller is at 5,s.
 XV23           ldx       5,s
@@ -5919,7 +5921,7 @@ NCHM           equ       11                  HTTP channel mode: 0 body, 3 set he
 NASCII         equ       12                  Set if query results are ASCII, ending in a space
 NOPERR         equ       $980                Last network OPEN's error, for NETERR(0); TRKTBL uses only $97E-$97F
 PRSTAT         equ       $981                FPRINT: 0 off, $80 on, $81 on with a job open
-CPFLG          equ       NHEADS              COPY: 0 not running, $80 running, $81 a name has :#n
+CPFLG          equ       NHEADS              COPY: 0 not running, $80 running, $81 a # drive is named
 CPOLD          equ       NSECTS              IDNUM before COPY (only IDE uses NHEADS and NSECTS)
 NRXB           equ       FCBCON              128-byte receive buffer
 NTXB           equ       FCBCON+128          128-byte send buffer
@@ -7155,6 +7157,20 @@ X17            pshs      u,y,x,d
                ldd       #DVEC17
                std       XHGO,s
                bsr       XCPRS
+               puls      d,x,y,u,pc
+
+* COPY's destination: #n keeps the source's name.
+XCT            pshs      u,y,x,d
+               ldx       #COPtst
+               cmpa      #'#
+               bne       XCT1
+               lbsr      XBDRV
+               orb       #$FC
+               stb       <DCDRV
+               lda       #$81
+               sta       CPFLG
+               ldx       #FDRTS
+XCT1           stx       XHGO,s
                puls      d,x,y,u,pc
 
 * BACKUP #s TO #d: copy the image in FujiNet drive s to the root of the SD
