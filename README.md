@@ -14,7 +14,11 @@ time and also runs on a CoCo 2.
 | `TIME$` | The FujiNet's time as `HH:MM:SS` (24-hour), or `""` if it doesn't answer |
 | `DATE$` | The FujiNet's date as `YYYY-MM-DD`, or `""` if it doesn't answer |
 | `GUID$` | A new random GUID from the FujiNet, 36 lowercase characters, or `""` if it doesn't answer |
-| `UCASE$(s$)` | `s$` with a-z in capitals |
+| `IP$` | The FujiNet's IP address, or `""` if it has none or doesn't answer |
+| `UCASE$(s$)`, `LCASE$(s$)` | `s$` with a-z in capitals, or A-Z in lowercase |
+| `TRIM$(s$)` | `s$` without the spaces and control characters at its ends |
+| `URLENCODE$(s$)` | `s$` for use in a URL: all but letters, digits and `- . _ ~` become `%XX`. `?LS ERROR` if the result is over 255 characters |
+| `FIELD$(s$,n,d$)` | Piece `n` (1-255) of `s$` split at each `d$`, or `""` if there are fewer: `FIELD$("A,B,C",2,",")` is `B` |
 | `FPRINT ON`, `FPRINT OFF` | Sends printer output (`PRINT #-2`, `LLIST`) to the FujiNet printer, or back to the serial port |
 | `BACKUP #s TO #d` | Copies the disk image in FujiNet drive `s` (0-3) to the root of the SD card and mounts the copy in drive `d` |
 | `DSKINI #d,"NAME"` | Creates blank disk image `NAME.DSK` in the root of the SD card and mounts it in FujiNet drive `d` |

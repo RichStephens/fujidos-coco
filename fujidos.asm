@@ -5243,19 +5243,11 @@ FDV23          ldx       #XV23
 * A CoCo 3's IF comes here for what follows THEN or ELSE: see FDINIT.
 FDIFJ          tfr       cc,b
 * FujiDOS commands. A = statement's first char, B = its GETNCH flags. Only
-* IF, LET and a word FDLTAB and FDL2 pass go to XCHK.
+* IF, LET and a word FDW passes go to XCHK.
 FDCHK          tsta
                bmi       FDCIF
-               cmpa      #'A
-               blo       FDCHKN
-               cmpa      #'Z
-               bhi       FDCHKN
-               ldx       #FDLTAB-'A
-               tst       a,x
-               beq       FDCHKN
-               lda       a,x
                ldx       <CHARAD
-               bsr       FDL2
+               bsr       FDW
                beq       FDCHK2
                lda       ,x
 FDCHKN         tfr       b,cc
@@ -5269,44 +5261,62 @@ FDCHK2         ldx       #XCHK
                tfr       b,cc
                jmp       ,x
 
-* Expression hook for the FDFTAB functions. Only a term FDLTAB and FDL2
-* pass goes to XFUN.
+* Expression hook for the FDFTAB functions. Only a term FDW passes goes
+* to XFUN.
 FDV15          ldx       <CHARAD
 FDV15A         leax      1,x
                lda       ,x
                cmpa      #$20
                beq       FDV15A
-               cmpa      #'A
-               blo       FDV15N
-               cmpa      #'Z
-               bhi       FDV15N
-               pshs      x
-               ldx       #FDLTAB-'A
-               lda       a,x
-               puls      x
-               beq       FDV15N
-               bsr       FDL2
+               cmpa      #TOKEN_FIELD        FIELD$ starts with FIELD's token
+               beq       FDV15B
+               bsr       FDW
                beq       FDV15B
 FDV15N         jmp       >DVEC15
 FDV15B         ldx       #XFUN
                jsr       FDXGO
                jmp       ,x
 
-* Can the word at X be a name in FDTAB or FDFTAB? A = FDLTAB's byte for its
-* first letter, not 0. Z set if its second letter fits. Changes A.
-FDL2           tsta
-               bmi       FDL2A
-               cmpa      1,x
-               rts
-FDL2A          lda       1,x
-               anda      #$E0
-               cmpa      #$40
-               rts
+* Z set if the first two characters at X can start a name in FDTAB or
+* FDFTAB. Changes A. The list's last byte has bit 7 set, which the shift
+* puts in C; a token at 1,x flips it, and then the 0 ends the scan.
+FDW            lda       ,x
+               suba      #'C
+               cmpa      #'X-'C
+               bhi       FDWX
+               pshs      u
+               ldu       #FDLTAB
+               lda       a,u
+               leau      a,u
+FDW1           lda       ,u+
+               eora      1,x
+               asla
+               beq       FDW2
+               bcc       FDW1
+FDW2           puls      u
+FDWX           rts
 
-* A to Z: the second letter of the names in FDTAB and FDFTAB that start with
-* the letter, $FF for any letter, 0 if there are none. Keep in step with them.
-FDLTAB         fcb       0,0,$FF,'A,0,'P,'U,$FF,0,'S,0,'O,0
-               fcb       $FF,0,0,'R,0,0,'I,'C,0,0,'M,0,0
+* C to X: where the list of second letters is for the names in FDTAB and
+* FDFTAB that start with the letter. Keep in step with them.
+FDLTAB         fcb       FDLC-FDLTAB,FDLD-FDLTAB,FDL0-FDLTAB,FDLP-FDLTAB
+               fcb       FDLG-FDLTAB,FDLH-FDLTAB,FDLP-FDLTAB,FDLJ-FDLTAB
+               fcb       FDL0-FDLTAB,FDLL-FDLTAB,FDL0-FDLTAB,FDLN-FDLTAB
+               fcb       FDL0-FDLTAB,FDL0-FDLTAB,FDLR-FDLTAB,FDL0-FDLTAB
+               fcb       FDL0-FDLTAB,FDLT-FDLTAB,FDLU-FDLTAB,FDL0-FDLTAB
+               fcb       FDL0-FDLTAB,FDLX-FDLTAB
+FDLC           fcb       'O
+FDLP           fcb       'P+$80
+FDLH           fcb       'E,'T+$80
+FDLL           fcb       'O,'C+$80
+FDLN           fcb       'E
+FDLR           fcb       'R+$80
+FDLT           fcb       'I,'R+$80
+FDLU           fcb       'C,'R+$80
+FDLD           fcb       'A+$80
+FDLG           fcb       'U+$80
+FDLJ           fcb       'S+$80
+FDLX           fcb       'M+$80
+FDL0           fcb       $FF,0               No names
 
 * Disk BASIC's code and BASIC's RAM hooks come here.
 FDHOPN         bsr       FDHK
@@ -5696,7 +5706,17 @@ FDFTAB         fcs       'TIME$'
                fdb       XUCASE
                fcs       'NREAD$'
                fdb       XNRD
+               fcs       'LCASE$'
+               fdb       XLCASE
+               fcs       'TRIM$'
+               fdb       XTRIM
+               fcs       'URLENCODE$'
+               fdb       XURL
+               fcs       'IP$'
+               fdb       XIP
                fcb       0
+* FIELD$: BASIC makes FIELD a token, so XFUN looks for that.
+XFLDV          fdb       XFIELD
 
 * Match the word at CHARAD against table U. Found: NE, U at the handler,
 * CHARAD at the word's last char.
@@ -5751,11 +5771,19 @@ XSN            jsr       FDOUT
 XFUN           ldx       <CHARAD
                pshs      x
                jsr       <GETNCH
-               ldu       #FDFTAB
+               cmpa      #TOKEN_FIELD
+               bne       XFUN1
+               jsr       <GETNCH
+               ldu       #XFLDV
+               puls      x
+               cmpa      #'$
+               bne       XFUNN
+               bra       XFUN2
+XFUN1          ldu       #FDFTAB
                lbsr      XMATCH
                puls      x
                beq       XFUNN
-               jsr       <GETNCH
+XFUN2          jsr       <GETNCH
                jsr       [,u]
                ldx       #FDDROP
                rts
@@ -5923,6 +5951,7 @@ NOPERR         equ       $980                Last network OPEN's error, for NETE
 PRSTAT         equ       $981                FPRINT: 0 off, $80 on, $81 on with a job open
 CPFLG          equ       NHEADS              COPY: 0 not running, $80 running, $81 a # drive is named
 CPOLD          equ       NSECTS              IDNUM before COPY (only IDE uses NHEADS and NSECTS)
+TOKEN_FIELD    equ       $D0
 NRXB           equ       FCBCON              128-byte receive buffer
 NTXB           equ       FCBCON+128          128-byte send buffer
 
@@ -6901,8 +6930,8 @@ XNRDD          ldb       STRDES
                fdb       LB54C
                rts
 
-* UCASE$(s$): s$ with a-z in capitals. Reserves before freeing s$, as LEFT$ does.
-XUCASE         jsr       FDOUT
+* (s$): X and V4D = its descriptor.
+XSARG          jsr       FDOUT
                fdb       LB26A               (
                jsr       FDOUT
                fdb       LB156
@@ -6912,6 +6941,15 @@ XUCASE         jsr       FDOUT
                fdb       LB267               )
                ldx       <FPA0+2
                stx       <V4D
+               rts
+
+* UCASE$(s$), LCASE$(s$): s$ with a-z in capitals, or A-Z in lowercase.
+* These functions reserve before freeing s$, as LEFT$ does.
+XUCASE         ldd       #$617A              a, z
+               bra       XCASE
+XLCASE         ldd       #$415A              A, Z
+XCASE          pshs      d
+               bsr       XSARG
                ldb       ,x
                jsr       FDOUT
                fdb       LB50F               X = B bytes of string space
@@ -6922,17 +6960,309 @@ XUCASE         jsr       FDOUT
                tstb
                beq       XUCX
 XUCL           lda       ,x+
-               cmpa      #'a
+               cmpa      ,s
                blo       XUC1
-               cmpa      #'z
+               cmpa      1,s
                bhi       XUC1
-               suba      #$20
+               eora      #$20
 XUC1           sta       ,u+
                decb
                bne       XUCL
-XUCX           jsr       FDOUT
+XUCX           leas      2,s
+XSRET          jsr       FDOUT
                fdb       LB54C
                rts
+
+* Copy B bytes from X to U and return the new string.
+XSCPY          tstb
+               beq       XSRET
+XSCPL          lda       ,x+
+               sta       ,u+
+               decb
+               bne       XSCPL
+               bra       XSRET
+
+* TRIM$(s$): s$ without the spaces and control characters at its ends.
+XTRIM          bsr       XSARG
+               ldb       ,x
+               ldu       2,x
+               clr       ,-s                 Chars dropped from the front
+XTR1           tstb
+               beq       XTR3
+               lda       ,u
+               cmpa      #$20
+               bhi       XTR2
+               leau      1,u
+               inc       ,s
+               decb
+               bra       XTR1
+XTR2           tfr       u,x
+               abx
+               lda       ,-x
+               cmpa      #$20
+               bhi       XTR3
+               decb
+               bra       XTR2
+XTR3           pshs      b
+               jsr       FDOUT
+               fdb       LB50F
+               ldx       <V4D
+               jsr       FDOUT
+               fdb       LB659
+               ldb       1,s
+               abx
+               puls      b
+               leas      1,s
+               ldu       <STRDES+2
+               bra       XSCPY
+
+* URLENCODE$(s$): s$ with all but letters, digits and - . _ ~ as %XX.
+XURL           lbsr      XSARG
+               ldb       ,x
+               ldu       2,x
+               ldy       #0
+               tstb
+               beq       XUR3
+XUR1           lda       ,u+
+               bsr       XUOK
+               beq       XUR2
+               leay      2,y
+XUR2           leay      1,y
+               decb
+               bne       XUR1
+XUR3           cmpy      #255
+               lbhi      XQDLS
+               tfr       y,d
+               jsr       FDOUT
+               fdb       LB50F
+               ldx       <V4D
+               jsr       FDOUT
+               fdb       LB659
+               ldu       <STRDES+2
+               tstb
+               lbeq      XSRET
+XUR4           lda       ,x+
+               bsr       XUOK
+               beq       XUR5
+               pshs      a
+               lda       #'%
+               sta       ,u+
+               lda       ,s
+               lsra
+               lsra
+               lsra
+               lsra
+               bsr       XHEX
+               puls      a
+               anda      #$0F
+               bsr       XHEX
+               bra       XUR6
+XUR5           sta       ,u+
+XUR6           decb
+               bne       XUR4
+               lbra      XSRET
+XHEX           adda      #'0
+               cmpa      #'9
+               bls       XHEX1
+               adda      #7
+XHEX1          sta       ,u+
+               rts
+* Z set if A goes in a URL as it is.
+XUOK           cmpa      #'-
+               beq       XUOKX
+               cmpa      #'.
+               beq       XUOKX
+               cmpa      #'_
+               beq       XUOKX
+               cmpa      #'~
+               beq       XUOKX
+               cmpa      #'0
+               blo       XUOKX
+               cmpa      #'9
+               bls       XUOKY
+               cmpa      #'A
+               blo       XUOKX
+               cmpa      #'Z
+               bls       XUOKY
+               cmpa      #'a
+               blo       XUOKX
+               cmpa      #'z
+               bhi       XUOKX
+XUOKY          orcc      #4
+XUOKX          rts
+
+* FIELD$(s$,n,d$): the nth piece of s$ split at d$, "" if there are fewer.
+FN             equ       0                   Pieces to go
+FDL            equ       1                   d$'s length
+FLEN           equ       2                   The piece's length
+FOFF           equ       3                   and offset in s$
+FPD            equ       4                   d$'s descriptor
+FPS            equ       6                   s$'s descriptor
+XFIELD         jsr       FDOUT
+               fdb       LB26A               (
+               jsr       FDOUT
+               fdb       LB156
+               jsr       FDOUT
+               fdb       LB146
+               ldx       <FPA0+2
+               pshs      x
+               jsr       FDOUT
+               fdb       LB738               ,n
+               tstb
+               lbeq      XFCERR
+               pshs      b
+               jsr       FDOUT
+               fdb       LB26D               ,
+               jsr       FDOUT
+               fdb       LB156
+               jsr       FDOUT
+               fdb       LB146
+               jsr       FDOUT
+               fdb       LB267               )
+               puls      a
+               ldx       <FPA0+2
+               ldb       ,x
+               lbeq      XFCERR
+               pshs      x
+               leas      -2,s
+               pshs      d
+               ldx       FPS,s
+               ldb       ,x
+               ldx       2,x
+XFS0           leay      ,x                  Y = this piece, X = B chars left
+XFS1           cmpb      FDL,s
+               blo       XFS5
+               pshs      x,b
+               ldu       FPD+3,s
+               ldu       2,u
+               lda       FDL+3,s
+XFS2           ldb       ,x+
+               cmpb      ,u+
+               bne       XFS3
+               deca
+               bne       XFS2
+               puls      b,x                 d$ is at X
+               dec       FN,s
+               beq       XFS6
+               subb      FDL,s
+               pshs      b
+               ldb       FDL+1,s
+               abx
+               puls      b
+               bra       XFS0
+XFS3           puls      b,x
+               leax      1,x
+               decb
+               bra       XFS1
+XFS5           abx                           No d$ left: the piece ends s$
+               dec       FN,s
+               beq       XFS6
+               leay      ,x
+XFS6           tfr       x,d
+               pshs      y
+               subd      ,s++
+               stb       FLEN,s
+               ldx       FPS,s
+               tfr       y,d
+               subd      2,x
+               stb       FOFF,s
+               ldb       FLEN,s
+               jsr       FDOUT
+               fdb       LB50F
+               ldx       FPD,s
+               jsr       FDOUT
+               fdb       LB659
+               ldx       FPS,s
+               jsr       FDOUT
+               fdb       LB659
+               ldb       FOFF,s
+               abx
+               ldb       FLEN,s
+               ldu       <STRDES+2
+               leas      8,s
+               lbra      XSCPY
+
+* IP$: the FujiNet's IP address, "" if it has none or doesn't answer.
+XIP            leas      -140,s
+               ldx       #XIPCMD
+               ldy       #4
+               jsr       DWWrite
+               leax      ,s
+               ldy       #1
+               jsr       DWRead
+               bcs       XIPNO
+               bne       XIPNO
+               lda       ,s
+               deca                          1 = no error
+               bne       XIPNO
+               ldx       #XGRSP
+               ldy       #2
+               jsr       DWWrite
+               leax      ,s
+               ldy       #140
+               jsr       DWRead
+               bcs       XIPNO
+               bne       XIPNO
+               leau      97,s                localIP
+               ldd       ,u
+               bne       XIP0
+               ldd       2,u
+               beq       XIPNO
+XIP0           leax      ,s
+               ldb       #4
+               pshs      b
+XIP1           lda       ,u+
+               bsr       XDEC
+               lda       #'.
+               sta       ,x+
+               dec       ,s
+               bne       XIP1
+               leas      1,s
+               leax      -1,x
+               tfr       x,d
+               leax      ,s
+               pshs      x
+               subd      ,s++
+               fcb       $8C                 Skip the clears
+XIPNO          clrb
+               clra
+               jsr       FDOUT
+               fdb       LB50F
+               tfr       x,u
+               leax      ,s
+               tstb
+               beq       XIPX
+XIPL           lda       ,x+
+               sta       ,u+
+               decb
+               bne       XIPL
+XIPX           leas      140,s
+               lbra      XSRET
+XIPCMD         fcb       $E2,$E8,$E2,$02     OP_FUJI GET_ADAPTERCONFIG, OP_FUJI SEND_ERROR
+* Append A in decimal at X.
+XDEC           clr       ,-s                 Not 0 once a digit is out
+               ldb       #100
+               bsr       XDEC1
+               ldb       #10
+               bsr       XDEC1
+               adda      #'0
+               sta       ,x+
+               puls      b,pc
+XDEC1          stb       ,-s
+               ldb       #'0
+XDEC2          cmpa      ,s
+               blo       XDEC3
+               suba      ,s
+               incb
+               bra       XDEC2
+XDEC3          leas      1,s
+               cmpb      #'0
+               bne       XDEC4
+               tst       2,s
+               beq       XDEC5
+XDEC4          stb       ,x+
+               inc       2,s
+XDEC5          rts
 
 * CPUSPEED [HI|LO]: set a CoCo 3's CPU speed, or print it. The speed can't be
 * read back, so count loops in one video field; run from the cart, this is
