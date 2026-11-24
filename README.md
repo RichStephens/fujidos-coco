@@ -104,8 +104,8 @@ that overwrites that block crashes BASIC. With less memory a CoCo 3 runs the
 upper 8K from the cartridge, at normal speed.
 
 `make disk` builds `fdtests.dsk` from `tests/*.bas` (needs `decb` from
-ToolShed): WEATHER, DADJOKE, NETCAT (a small terminal), QRDEMO and NETTEST,
-a self-check against httpbin.org.
+ToolShed): DEMO (a tour of the commands), WEATHER, DADJOKE, NETCAT (a small
+terminal), QRDEMO and NETTEST, a self-check against httpbin.org.
 
 ## Credits
 

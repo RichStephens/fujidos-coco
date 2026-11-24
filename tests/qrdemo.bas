@@ -5,6 +5,6 @@
 50 IF INKEY$="" THEN 50
 60 NEXT:CLS
 70 REM THE TEXT, AND WHERE ITS CAPTION FITS (0 = NOWHERE)
-80 DATA "HTTPS://FUJINET.IO",455
+80 DATA "HTTPS://FUJINET.ONLINE",453
 90 DATA "https://fujinet.online/",484
 100 DATA "https://github.com/FujiNetWIFI/fujinet-firmware",0
