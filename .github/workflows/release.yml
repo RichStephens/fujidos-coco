@@ -1,0 +1,39 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "[0-9]*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    container:
+      image: fozztexx/defoogi:1.4.8
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build ROM and test disk
+        run: make all disk
+
+      - name: Verify banner version matches tag and changelog
+        run: python3 .github/scripts/release-check.py fujidos.rom CHANGELOG.md "${{ github.ref_name }}" > release-notes.md
+
+      - name: Name the release files
+        run: |
+          mkdir release
+          cp fujidos.rom "release/fujidos-${{ github.ref_name }}.rom"
+          cp fdtests.dsk "release/fdtests-${{ github.ref_name }}.dsk"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: FujiDOS ${{ github.ref_name }}
+          body_path: release-notes.md
+          files: release/*

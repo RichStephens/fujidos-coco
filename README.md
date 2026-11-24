@@ -107,6 +107,12 @@ upper 8K from the cartridge, at normal speed.
 ToolShed): DEMO (a tour of the commands), WEATHER, DADJOKE, NETCAT (a small
 terminal), QRDEMO and NETTEST, a self-check against httpbin.org.
 
+## Releasing
+
+Set `VMAJOR` and `VMINOR` in `fujidos.asm`, add a `## [x.y]` section to
+`CHANGELOG.md`, then push the tag `x.y`. The release fails unless the
+banner version, the tag and the newest changelog section agree.
+
 ## Credits
 
 FujiDOS is almost entirely HDB-DOS. All credit for it goes to its authors:

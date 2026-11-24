@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    container:
+      image: fozztexx/defoogi:1.4.8
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build ROM and test disk
+        run: make all disk
+
+      - name: Check banner version against changelog
+        run: python3 .github/scripts/release-check.py fujidos.rom CHANGELOG.md > /dev/null
+
+      - name: Upload ROM and test disk
+        uses: actions/upload-artifact@v4
+        with:
+          name: fujidos
+          path: |
+            fujidos.rom
+            fdtests.dsk
